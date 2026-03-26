@@ -1,0 +1,206 @@
+<!-- <!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial; padding: 10px; }
+    button { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h3>YouDub</h3>
+
+  <select id="language">
+    <option value="hi">Hindi</option>
+    <option value="te">Telugu</option>
+    <option value="ta">Tamil</option>
+  </select>
+
+  <button id="start">Start Dubbing</button>
+
+  <script src="popup.js"></script>
+</body>
+</html> -->
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    :root {
+      --primary: #ff0000; /* YouTube Red */
+      --accent: #6366f1; /* Indigo AI Purple */
+      --bg: #0f0f0f;
+      --card: #1e1e1e;
+      --text: #ffffff;
+    }
+
+    body {
+      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      width: 280px;
+      padding: 16px;
+      margin: 0;
+      border-radius: 12px;
+    }
+
+    h3.logo {
+  margin: 0 0 16px 0;
+  font-size: 1.4rem; /* Slightly larger to accommodate the logo */
+  font-weight: 800;
+  display: flex; /* We use flex here ONLY to align image and text vertically */
+  align-items: center;
+  color: var(--text);
+  letter-spacing: -0.5px;
+}
+
+h3.logo img {
+  width: 28px; /* Adjust based on your logo's aspect ratio */
+  height: 28px;
+  margin-right: 6px; /* Space between the image and the word "You" */
+  object-fit: contain;
+}
+
+h3.logo span {
+  color: var(--primary);
+  /* No margin-right here ensures "You" and "Dub" touch */
+}
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    label {
+      font-size: 0.8rem;
+      color: #aaa;
+      margin-bottom: -8px;
+    }
+
+    select {
+      background: var(--card);
+      border: 1px solid #333;
+      color: white;
+      padding: 10px;
+      border-radius: 8px;
+      outline: none;
+      transition: border 0.2s;
+      cursor: pointer;
+    }
+
+    select:focus {
+      border-color: var(--accent);
+    }
+
+    button {
+      background: linear-gradient(135deg, var(--primary) 0%, #b91c1c 100%);
+      color: white;
+      border: none;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button:active {
+      transform: scale(0.97);
+    }
+
+    button:disabled {
+      background: #333;
+      cursor: not-allowed;
+    }
+
+    .status-box {
+      margin-top: 12px;
+      padding: 10px;
+      background: #161616;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      border-left: 3px solid var(--accent);
+    }
+
+    .status-text {
+      color: #ccc;
+    }
+
+    /* Simple pulse for "Processing" state */
+    .pulse {
+      height: 8px;
+      width: 8px;
+      background-color: var(--accent);
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 5px;
+      animation: pulse-animation 1.5s infinite;
+    }
+
+    @keyframes pulse-animation {
+      0% { box-shadow: 0 0 0 0px rgba(99, 102, 241, 0.4); }
+      100% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+    }
+    .visualizer-container {
+  display: none; /* Hidden until started */
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin-bottom: 15px;
+}
+
+.bar {
+  width: 4px;
+  height: 5px;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: height 0.1s ease;
+}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- <h3><span>You</span>Dub</h3> -->
+    
+    <h3 class="logo">
+        <img src="images/image3.png" alt="YouDub Logo">
+        <span>You</span>Dub
+    </h3>
+
+    <label for="language">Source Language</label>
+    <select id="language">
+      <option value="hi">Hindi</option>
+      <option value="te">Telugu</option>
+      <option value="ta">Tamil</option>
+    </select>
+
+    <button id="start">
+      <span id="btn-text">Start Dubbing</span>
+    </button>
+
+    <div id="status-container" style="display: none;">
+      <div class="status-box">
+        <div class="pulse"></div>
+        <span class="status-text" id="status-msg">Initializing WebGPU...</span>
+      </div>
+    </div>
+  </div>
+  <div class="visualizer-container">
+  <div class="bar"></div>
+  <div class="bar"></div>
+  <div class="bar"></div>
+  <div class="bar"></div>
+  <div class="bar"></div>
+</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
