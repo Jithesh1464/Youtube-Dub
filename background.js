@@ -1,122 +1,144 @@
-// let isCapturing = false;
-// let creatingOffscreen;
-
-// async function setupOffscreen() {
-//   const exists = await chrome.offscreen.hasDocument();
-//   if (exists) return;
-
-//   if (creatingOffscreen) {
-//     await creatingOffscreen;
-//   } else {
-//     creatingOffscreen = chrome.offscreen.createDocument({
-//       url: "offscreen.html",
-//       reasons: ["AUDIO_PLAYBACK", "USER_MEDIA"],
-//       justification: "Processing audio for dubbing"
-//     });
-
-//     await creatingOffscreen;
-//     creatingOffscreen = null;
-//   }
-// }
-
-// chrome.runtime.onMessage.addListener(async (msg, sender, sendResponse) => {
-//   if (msg.type === "START_DUBBING") {
-//     if (isCapturing) {
-//       console.log("Already capturing, skipping...");
-//       return;
-//     }
-
-//     isCapturing = true;
-
-//     await setupOffscreen();
-
-//     const streamId = await chrome.tabCapture.getMediaStreamId({
-//       targetTabId: msg.tabId
-//     });
-
-//     chrome.runtime.sendMessage({
-//       type: "START_STREAM",
-//       streamId: streamId,
-//       language: msg.language
-//     });
-
-//     sendResponse({ status: "started" });
-//   }
-// });
+// background.js
 let isCapturing = false;
-let creatingOffscreen;
+let currentDubbingTabId = null;
+let creatingOffscreen = null;
 
-// Helper to ensure Offscreen Document exists
 async function setupOffscreen() {
-  const exists = await chrome.offscreen.hasDocument();
-  if (exists) return;
+    try {
+        const exists = await chrome.offscreen.hasDocument();
+        if (exists) return;
 
-  if (creatingOffscreen) {
-    await creatingOffscreen;
-  } else {
-    creatingOffscreen = chrome.offscreen.createDocument({
-      url: "offscreen.html",
-      reasons: ["AUDIO_PLAYBACK", "USER_MEDIA"],
-      justification: "Processing audio for dubbing"
-    });
-    await creatingOffscreen;
-    creatingOffscreen = null;
-  }
+        if (creatingOffscreen) {
+            await creatingOffscreen;
+            return;
+        }
+
+        creatingOffscreen = chrome.offscreen.createDocument({
+            url: "offscreen.html",
+            reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
+            justification: "Real-time audio capture and AI dubbing for YouTube videos"
+        });
+
+        await creatingOffscreen;
+        creatingOffscreen = null;
+    } catch (err) {
+        console.error("Offscreen creation failed:", err);
+        throw err;
+    }
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === "START_DUBBING") {
-    const streamId = chrome.tabCapture.getMediaStreamId({
-  targetTabId: msg.tabId
-});
-console.log("Generated Stream ID:", streamId);
-    // Handle the async logic inside a separate function
-    handleStartDubbing(msg, sendResponse);
-    return true; // Keeps the message channel open for sendResponse
-  }
+    if (msg.type === "START_DUBBING") {
+        handleStartDubbing(msg, sendResponse);
+        return true;
+    }
 
-  if (msg.type === "STOP_DUBBING") {
-    isCapturing = false;
-    chrome.offscreen.closeDocument();
-    sendResponse({ status: "stopped" });
-  }
+    if (msg.type === "STOP_DUBBING") {
+        handleStopDubbing(sendResponse);
+        return true;
+    }
 });
-
 
 async function handleStartDubbing(msg, sendResponse) {
-  try {
-    if (isCapturing) {
-      sendResponse({ success: false, error: "Already capturing" });
-      return;
+    try {
+        if (isCapturing) {
+            sendResponse({ success: false, error: "Already capturing" });
+            return;
+        }
+
+        const { streamId, language, tabId } = msg;
+        if (!streamId || !tabId) {
+            throw new Error("Missing streamId or tabId");
+        }
+
+        await setupOffscreen();
+
+        currentDubbingTabId = tabId;
+        isCapturing = true;
+
+        // Forward to offscreen
+        chrome.runtime.sendMessage({
+            type: "START_STREAM",
+            streamId: streamId,
+            language: language,
+            tabId: tabId
+        });
+
+        sendResponse({ success: true });
+
+    } catch (error) {
+        console.error("Start dubbing failed:", error);
+        isCapturing = false;
+        currentDubbingTabId = null;
+        sendResponse({ success: false, error: error.message });
     }
-
-    // 1. Ensure Offscreen is ready
-    await setupOffscreen();
-
-    // 2. Critical: Use the streamId passed from the popup 
-    // (Generating it in the popup is safer for permissions)
-    const streamId = msg.streamId; 
-
-    if (!streamId) {
-      throw new Error("No StreamID received from popup");
-    }
-
-    // 3. Send the token to the Offscreen document
-    // We add a small delay to ensure the offscreen's listener is active
-    setTimeout(() => {
-      chrome.runtime.sendMessage({
-        type: "START_STREAM",
-        streamId: streamId,
-        language: msg.language
-      });
-      
-      isCapturing = true;
-      sendResponse({ success: true, status: "Handed off to Offscreen" });
-    }, 200);
-
-  } catch (error) {
-    console.error("Background Error:", error);
-    isCapturing = false;
-    sendResponse({ success: false, error: error.message });
-  }
 }
+
+// async function handleStopDubbing(sendResponse) {
+//     try {
+//         isCapturing = false;
+//         const tabId = currentDubbingTabId;
+//         currentDubbingTabId = null;
+
+//         chrome.runtime.sendMessage({ type: "STOP_DUBBING" });
+
+//         try {
+//             await chrome.offscreen.closeDocument();
+//         } catch (e) {}
+
+//         // Notify popup if needed
+//         chrome.runtime.sendMessage({ type: "DUBBING_STOPPED" });
+
+//         sendResponse({ success: true });
+//     } catch (error) {
+//         console.error("Stop dubbing error:", error);
+//         sendResponse({ success: false });
+//     }
+// }
+
+async function handleStopDubbing(sendResponse) {
+    try {
+        isCapturing = false;
+
+        const tabId = currentDubbingTabId;
+        currentDubbingTabId = null;
+
+        // Close offscreen document properly (this is the heavy part)
+        try {
+            await chrome.offscreen.closeDocument();
+        } catch (e) {
+            console.debug("Offscreen document already closed or not found");
+        }
+
+        // Notify content script if needed (optional)
+        if (tabId) {
+            try {
+                await chrome.tabs.sendMessage(tabId, { type: "UNMUTE_VIDEO" });
+            } catch (e) {
+                // Content script may not exist - it's okay
+            }
+        }
+
+        // Notify popup that everything is stopped
+        chrome.runtime.sendMessage({ 
+            type: "DUBBING_STOPPED" 
+        });
+
+        // Send success response back to popup
+        sendResponse({ success: true });
+
+    } catch (error) {
+        console.error("Stop dubbing error:", error);
+        sendResponse({ 
+            success: false, 
+            error: error.message || "Unknown error while stopping" 
+        });
+    }
+} 
+
+// Auto cleanup if user closes the YouTube tab
+chrome.tabs.onRemoved.addListener((tabId) => {
+    if (tabId === currentDubbingTabId) {
+        handleStopDubbing(() => {});
+    }
+});

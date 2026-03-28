@@ -57,7 +57,8 @@
       "image3.png",
       "audio-processor.js"
     ],
-    "matches": ["<all_urls>"]
+    "matches": ["https://www.youtube.com/*"]
+
   }
   
 ]

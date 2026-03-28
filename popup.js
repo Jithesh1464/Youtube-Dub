@@ -327,6 +327,7 @@
 
 // popup.js - Improved Version
 
+// popup.js
 let currentDubbingTabId = null;
 
 const startBtn = document.getElementById("start");
@@ -334,35 +335,44 @@ const langSelect = document.getElementById("language");
 const statusContainer = document.getElementById("status-container");
 const statusMsg = document.getElementById("status-msg");
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Load state when popup opens
 async function loadState() {
-    const data = await chrome.storage.local.get(["dubbingTabId", "dubbingLanguage"]);
-    currentDubbingTabId = data.dubbingTabId || null;
+    try {
+        const { dubbingTabId } = await chrome.storage.local.get("dubbingTabId");
 
-    if (currentDubbingTabId) {
-        updateUIState(true);
-        updateStatus("YouDub is Active on another tab", "success");
-    } else {
+        currentDubbingTabId = dubbingTabId || null;
+
+        if (currentDubbingTabId) {
+            updateUIState(true);
+            updateStatus("YouDub is Active ", "success");
+        } else {
+            updateUIState(false);
+            updateStatus("Ready", "info");
+        }
+    } catch (err) {
+        console.error("Failed to load state:", err);
         updateUIState(false);
     }
 }
 
-// Main button handler
+
+// SYNC bloacks the main thread, so we use async/await for better UX handling it wont block the popup while we wait for responses from background or content scripts
 startBtn.onclick = async () => {
+
+    // returns an array,then it takes the first element of that array and puts it into the variable tab SIMPLY IT MEANS TAB[0]
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+    // Optional Chaining (?.)
+    // if (!tab || !tab.url || !tab.url.includes("youtube.com"))
     if (!tab?.url?.includes("youtube.com")) {
-        updateStatus("Please open a YouTube video first.", "error");
+        updateStatus("Please open a YouTube video first", "error");
         return;
     }
 
     if (currentDubbingTabId) {
-        // Stop dubbing
         await stopDubbing();
     } else {
-        // Start dubbing
         await startDubbing(tab);
     }
 };
@@ -371,90 +381,118 @@ async function startDubbing(tab) {
     const language = langSelect.value;
 
     updateUIState(true);
-    updateStatus("Requesting tab capture...", "info");
+    updateStatus("Requesting audio capture...", "info");
 
     try {
-        // Modern Promise version (cleaner)
-        const streamId = await new Promise((resolve, reject) => {
-            chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
-                if (chrome.runtime.lastError || !id) {
-                    reject(chrome.runtime.lastError || new Error("Failed to get streamId"));
-                } else {
-                    resolve(id);
-                }
-            });
-        });
+    // Much cleaner - native promise support
+    const streamId = await chrome.tabCapture.getMediaStreamId({ 
+        targetTabId: tab.id 
+    });
+    // sending message to background with streamId and language
+    const response = await chrome.runtime.sendMessage({
+        type: "START_DUBBING",
+        streamId: streamId,
+        language: language,
+        tabId: tab.id
+    });
 
-        // Send to background/offscreen
-        const response = await chrome.runtime.sendMessage({
-            type: "START_DUBBING",
-            language: language,
-            streamId: streamId,
-            tabId: tab.id
-        });
 
-        if (!response?.success) throw new Error("Failed to start AI pipeline");
-
-        // Mute the video (cleaner version)
-        await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ["content.js"]
-        });
-
-        await chrome.tabs.sendMessage(tab.id, { type: "MUTE_VIDEO" });
-
-        // Save persistent state
-        await chrome.storage.local.set({
-            dubbingTabId: tab.id,
-            dubbingLanguage: language
-        });
-
-        currentDubbingTabId = tab.id;
-        updateStatus("YouDub is Active! 🎙️", "success");
-
-    } catch (err) {
-        console.error(err);
-        updateStatus("Failed to start dubbing: " + err.message, "error");
-        updateUIState(false);
+    // Because it's inside a try block, when throw new Error() runs, JavaScript jumps directly to the catch block.
+    if (!response?.success) {
+        throw new Error(response?.error || "Failed to start dubbing");
     }
+
+    // Inject content script + mute
+    await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["content.js"]
+    });
+
+    await chrome.tabs.sendMessage(tab.id, { type: "MUTE_VIDEO" });
+
+    await chrome.storage.local.set({ dubbingTabId: tab.id });
+    currentDubbingTabId = tab.id;
+
+    updateStatus("YouDub is Active!", "success");
+
+} catch (err) {
+    console.error("Dubbing start failed:", err);
+    updateStatus("Failed to start: " + (err.message || err), "error");
+    updateUIState(false);
 }
+}
+
+// async function stopDubbing() {
+
+//     // If there's no active dubbing tab, just exit silently. This prevents unnecessary errors.
+//     if (!currentDubbingTabId) return;
+
+//     try {
+//         await chrome.runtime.sendMessage({ type: "STOP_DUBBING" });
+
+//         try {
+//             await chrome.tabs.sendMessage(currentDubbingTabId, { type: "UNMUTE_VIDEO" });
+//         } catch (e) {}
+//     } catch (e) {
+//         console.warn(e);
+//     }
+
+//     await chrome.storage.local.remove("dubbingTabId");
+//     currentDubbingTabId = null;
+
+//     updateUIState(false);
+//     updateStatus("", "info");
+// }
 
 async function stopDubbing() {
     if (!currentDubbingTabId) return;
 
     try {
-        await chrome.runtime.sendMessage({
-            type: "STOP_DUBBING",
-            tabId: currentDubbingTabId
+        // Wait for background to actually stop everything
+        const response = await chrome.runtime.sendMessage({ 
+            type: "STOP_DUBBING" 
         });
 
-        // Try to unmute (ignore if content script not present)
+        // Safely try to unmute (tab might be closed)
         try {
-            await chrome.tabs.sendMessage(currentDubbingTabId, { type: "UNMUTE_VIDEO" });
-        } catch (e) {}
+            await chrome.tabs.sendMessage(currentDubbingTabId, { 
+                type: "UNMUTE_VIDEO" 
+            });
+        } catch (e) {
+            console.debug("Could not unmute: tab may be closed");
+        }
 
-    } catch (e) {
-        console.warn("Stop message failed", e);
+        // Clean up
+        await chrome.storage.local.remove("dubbingTabId");
+        currentDubbingTabId = null;
+
+        updateUIState(false);
+        updateStatus("Dubbing stopped successfully", "success");
+
+        // Auto clear message
+        setTimeout(() => updateStatus("Ready", "info"), 1500);
+
+    } catch (err) {
+        console.error("Stop dubbing failed:", err);
+        
+        // Force cleanup even on error
+        await chrome.storage.local.remove("dubbingTabId");
+        currentDubbingTabId = null;
+        updateUIState(false);
+        
+        updateStatus("Dubbing stopped with issues", "error");
     }
-
-    // Clear saved state
-    await chrome.storage.local.remove(["dubbingTabId", "dubbingLanguage"]);
-    currentDubbingTabId = null;
-
-    updateUIState(false);
-    updateStatus("", "info");
 }
 
-// UI Helpers
 function updateUIState(isActive) {
     if (isActive) {
         startBtn.textContent = "Stop Dubbing";
-        startBtn.style.background = "linear-gradient(135deg, #444 0%, #222 100%)";
+        startBtn.style.background = "linear-gradient(135deg, #444, #222)";
         langSelect.disabled = true;
         statusContainer.style.display = "block";
     } else {
         startBtn.textContent = "Start Dubbing";
-        startBtn.style.background = "linear-gradient(135deg, #ff0000 0%, #b91c1c 100%)";
+        startBtn.style.background = "linear-gradient(135deg, #ff0000, #b91c1c)";
         langSelect.disabled = false;
         statusContainer.style.display = "none";
     }
@@ -462,26 +500,14 @@ function updateUIState(isActive) {
 
 function updateStatus(message, type = "info") {
     statusMsg.textContent = message;
-    statusMsg.innerText = message;
-    const pulse = document.querySelector(".pulse");
-    
-    // Change pulse color based on status
-    if (type === "error") {
-        pulse.style.backgroundColor = "#ff4444";
-        statusMsg.style.color = "#ff4444";
-    } else if (type === "success") {
-        pulse.style.backgroundColor = "#4ade80"; // Green
-        statusMsg.style.color = "#4ade80";
-    } else {
-        pulse.style.backgroundColor = "#6366f1"; // Blue
-        statusMsg.style.color = "#ccc";
-    }
+    // Add your pulse color logic here if needed
 }
 
-// Initialize
-document.addEventListener("DOMContentLoaded", loadState);
+document.addEventListener("DOMContentLoaded", () => {
+    loadState();        // Restore previous state when popup opens
+});
 
-// Optional: Listen for updates from background
+// Listen for background notifications
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === "DUBBING_STOPPED") {
         currentDubbingTabId = null;
