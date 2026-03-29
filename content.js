@@ -112,11 +112,15 @@
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         switch (msg.type) {
             case "MUTE_VIDEO":
-                handleMute(sendResponse);
+                // handleMute(sendResponse);
+                console.log("🔇 Mute request received - SKIPPED for debugging");
+                sendResponse({ success: true, status: "mute_skipped_for_debug" });
                 break;
 
             case "UNMUTE_VIDEO":
-                handleUnmute(sendResponse);
+                // handleUnmute(sendResponse);
+                console.log("🔊 Unmute request received - SKIPPED for debugging");
+                sendResponse({ success: true, status: "unmute_skipped_for_debug" });
                 break;
 
             default:
