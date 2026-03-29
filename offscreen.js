@@ -247,13 +247,21 @@ async function initializeModel() {
         const baseUrl = chrome.runtime.getURL('');
 
         // Force fully offline mode
+        //This tells Transformers.js: "You are allowed to load models from local files (inside the extension)".
         env.allowLocalModels = true;
+        
+        //It blocks Transformers.js from downloading any model files from the internet (Hugging Face).
         env.allowRemoteModels = false;
 
+        // ONNX Runtime Web needs two WebAssembly files to run:
+        //   1.  ort-wasm-simd-threaded.wasm → Main WebAssembly binary (SIMD + multi-threading support)
+        //   2. ort-wasm-simd-threaded.jsep.wasm → JSEP (JavaScript Execution Provider) version for better performance
         env.backends.onnx.wasm.wasmPaths = {
             'ort-wasm-simd-threaded.wasm': baseUrl + 'ort-wasm-simd-threaded.wasm',
             'ort-wasm-simd-threaded.jsep.wasm': baseUrl + 'ort-wasm-simd-threaded.jsep.wasm'
         };
+
+        //This .mjs file contains JavaScript glue code that helps ONNX Runtime communicate with the WebAssembly files.
         env.backends.onnx.wasm.jsepPath = baseUrl + 'ort-wasm-simd-threaded.jsep.mjs';
 
         console.log("🚀 Loading Whisper tiny model from LOCAL files... (This may take 15-50 seconds)");
@@ -368,6 +376,12 @@ async function startDubbingStream(streamId, language) {
                 }
             },
             video: false
+            // video: {
+            // mandatory: {
+            //     chromeMediaSource: "tab",
+            //     chromeMediaSourceId: streamId
+            // }
+            // }
         });
 
         const audioTracks = currentStream.getAudioTracks();
@@ -397,7 +411,7 @@ async function startDubbingStream(streamId, language) {
         await new Promise(resolve => setTimeout(resolve, 800));
 
         // Optional: Start debug recording (only if you want to verify raw audio)
-        startRecording(currentStream);   // Uncomment only when needed
+        // startRecording(currentStream);   // Uncomment only when needed
 
         await initializeAudioPipeline(currentStream, language);
 
@@ -558,7 +572,7 @@ function stopDubbing(silent = false) {
 
 console.log("🎥 Offscreen document ready - Starting AI model load...");
 
-//newly added recording function for debugging - will be removed in final version
+// newly added recording function for debugging - will be removed in final version
 function startRecording(stream) {
   try {
     if (!stream) {
@@ -632,3 +646,95 @@ function downloadAudio(blob) {
     console.error("❌ Download failed:", err);
   }
 }
+
+
+//THE NBELOW TWO FUNCTIONS ARE FOR DOWNLOADING THE VIDEO STREAM FOR DEBUGGING PURPOSE.
+// function startRecording(stream) {
+//     try {
+//         if (!stream) {
+//             throw new Error("Stream is not available for recording");
+//         }
+
+//         if (mediaRecorder && mediaRecorder.state === "recording") {
+//             console.warn("⚠️ Recording already in progress");
+//             return;
+//         }
+
+//         recordedChunks = [];
+
+//         // Choose the best mimeType for video + audio
+//         const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") 
+//             ? "video/webm;codecs=vp9,opus"
+//             : "video/webm;codecs=vp8,opus";
+
+//         console.log(`🎥 Starting MediaRecorder with mimeType: ${mimeType}`);
+
+//         mediaRecorder = new MediaRecorder(stream, {
+//             mimeType: mimeType
+//         });
+
+//         mediaRecorder.ondataavailable = (event) => {
+//             if (event.data && event.data.size > 0) {
+//                 recordedChunks.push(event.data);
+//             }
+//         };
+
+//         mediaRecorder.onerror = (event) => {
+//             console.error("❌ MediaRecorder error:", event.error);
+//         };
+
+//         mediaRecorder.onstop = () => {
+//             try {
+//                 if (recordedChunks.length === 0) {
+//                     console.warn("⚠️ No data recorded");
+//                     return;
+//                 }
+
+//                 const blob = new Blob(recordedChunks, { 
+//                     type: mimeType 
+//                 });
+
+//                 console.log(`🎥 Recording complete! Size: ${(blob.size / (1024*1024)).toFixed(2)} MB`);
+
+//                 downloadRecording(blob);
+
+//             } catch (err) {
+//                 console.error("❌ Error processing recorded blob:", err);
+//             }
+//         };
+
+//         // Start recording with 1-second timeslices (good for memory management)
+//         mediaRecorder.start(1000);
+
+//         console.log("🎥 Video + Audio recording started (10 seconds debug)");
+
+//         // Auto stop after 10 seconds for debugging
+//         setTimeout(() => {
+//             if (mediaRecorder && mediaRecorder.state === "recording") {
+//                 mediaRecorder.stop();
+//             }
+//         }, 10000);
+
+//     } catch (err) {
+//         console.error("❌ Recording setup failed:", err);
+//     }
+// }
+
+// function downloadRecording(blob) {
+//     try {
+//         const url = URL.createObjectURL(blob);
+//         const a = document.createElement("a");
+        
+//         a.href = url;
+//         a.download = `youdub_recording_${Date.now()}.webm`;
+//         document.body.appendChild(a);
+//         a.click();
+//         document.body.removeChild(a);
+
+//         URL.revokeObjectURL(url);
+
+//         console.log("📥 Recording downloaded successfully");
+//     } catch (err) {
+//         console.error("❌ Download failed:", err);
+//     }
+// }

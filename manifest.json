@@ -3,9 +3,9 @@
   "name": "YouDub",
   "version": "1.0",
   "icons": {
-    "16": "images/image3.png",
-    "48": "images/image3.png",
-    "128": "images/image3.png"
+    "16": "images/image4.png",
+    "48": "images/image4.png",
+    "128": "images/image4.png"
   },
   "description": "Real-time English dubbing for Indic videos on YouTube",
 
@@ -31,8 +31,8 @@
 
   "action": {
     "default_icon": {
-      "16": "images/image3.png",
-      "32": "images/image3.png"
+      "16": "images/image4.png",
+      "32": "images/image4.png"
     },
     "default_popup": "popup.html",
     "default_title": "YouDub"

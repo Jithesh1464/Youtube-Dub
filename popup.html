@@ -147,33 +147,126 @@ h3.logo span {
       0% { box-shadow: 0 0 0 0px rgba(99, 102, 241, 0.4); }
       100% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
     }
-    .visualizer-container {
-  display: none; /* Hidden until started */
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  margin-bottom: 15px;
+.visualizer-outer {
+    display: flex;
+    background: #0f0f0f;
+    border: 1px solid #333;
+    border-radius: 12px;
+    padding: 10px;
+    position: relative;
+    height: 170px;
 }
 
-.bar {
-  width: 4px;
-  height: 5px;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: height 0.1s ease;
+/* Keeps labels on the left, not moving */
+.y-axis-fixed {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding-right: 10px;
+    color: #888;
+    font-size: 10px;
+    font-weight: bold;
+    height: 130px; /* Matches canvas drawing area */
+    margin-top: 10px;
+}
+
+.waveform-scroll-container {
+    flex-grow: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    cursor: crosshair;
+}
+
+/* Modern Scrollbar Styling */
+.waveform-scroll-container::-webkit-scrollbar {
+    height: 6px;
+}
+.waveform-scroll-container::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 10px;
+}
+
+#waveform {
+    display: block;
+    /* Width will be set dynamically in JS */
+}
+
+.timer-container {
+    margin-top: 8px;
+    text-align: center;
+}
+
+#time-info {
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+    color: #22ff88;
+    text-shadow: 0 0 5px rgba(34, 255, 136, 0.5);
+}
+/* Header with Logo + Buttons */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+/* Feature Buttons - Top Right, Horizontal */
+.feature-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.icon-btn {
+    width: 46px;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000000;
+    border: 1px solid #444;
+    border-radius: 12px;
+    color: #ddd;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.icon-btn:hover {
+    background: #2a2a2a;
+    border-color: #22ff88;
+    color: #22ff88;
+    transform: translateY(-2px);
+}
+
+.icon-btn:active {
+    transform: scale(0.92);
 }
   </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 </head>
 <body>
   <div class="container">
-    <!-- <h3><span>You</span>Dub</h3> -->
     
-    <h3 class="logo">
-        <img src="images/image3.png" alt="YouDub Logo">
-        <span>You</span>Dub
-    </h3>
+    <!-- Logo and Title -->
+    <div class="header">
+      <h3 class="logo">
+          <img src="images/image4.png" alt="YouDub Logo">
+          <span>You</span>Dub
+      </h3>
+
+      <!-- Feature Buttons - Top Right -->
+      <div class="feature-buttons">
+        <button id="auto-dub-self" class="icon-btn" title="Auto Dub Self Audio">
+            <i class="fa-solid fa-microphone"></i>
+        </button>
+
+        <button id="record-video" class="icon-btn" title="Record & Download Video">
+          <i class="fa-solid fa-circle-dot"></i>
+        </button>
+      </div>
+    </div>
 
     <label for="language">Source Language</label>
     <select id="language">
@@ -193,13 +286,23 @@ h3.logo span {
       </div>
     </div>
   </div>
-  <div class="visualizer-container">
-  <div class="bar"></div>
-  <div class="bar"></div>
-  <div class="bar"></div>
-  <div class="bar"></div>
-  <div class="bar"></div>
-</div>
+
+  <!-- Waveform Visualizer -->
+  <div class="visualizer-outer">
+    <div class="y-axis-fixed">
+        <span>High</span>
+        <span>0</span>
+        <span>Low</span>
+    </div>
+
+    <div class="waveform-scroll-container" id="scroll-wrapper">
+        <canvas id="waveform" height="150"></canvas>
+    </div>
+  </div>
+
+  <div class="timer-container">
+    <span id="time-info">00:00</span>
+  </div>
 
   <script src="popup.js"></script>
 </body>
