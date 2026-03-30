@@ -334,7 +334,7 @@ const startBtn = document.getElementById("start");
 const langSelect = document.getElementById("language");
 const statusContainer = document.getElementById("status-container");
 const statusMsg = document.getElementById("status-msg");
-const autoDub = document.getElementById("auto-dub-self");
+const selfDub = document.getElementById("auto-dub-self");
 const recordVideo = document.getElementById("record-video");
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -394,48 +394,6 @@ function resetRecordButton() {
 document.addEventListener("DOMContentLoaded", () => {
     updateRecordButtonState();
 });
-
-// recordVideo.onclick = async () => {
-//     const btn = recordVideo;
-
-//     if (!isRecording) {
-//         try {
-//             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-//             if (!tab?.url?.includes("youtube.com")) {
-//                 alert("Please open a YouTube video first!");
-//                 return;
-//             }
-
-//             btn.innerHTML = `<i class="fa-solid fa-circle-dot"></i>`;
-//             btn.style.color = "#ef4444";
-
-//             isRecording = true;
-
-//             // Pass tabId to background
-//             await chrome.runtime.sendMessage({ 
-//                 type: "START_VIDEO_RECORDING",
-//                 tabId: tab.id 
-//             });
-
-//         } catch (err) {
-//             console.error(err);
-//             alert("Failed to start recording");
-//             resetRecordButton();
-//         }
-//     } else {
-//         await chrome.runtime.sendMessage({ type: "STOP_VIDEO_RECORDING" });
-//         resetRecordButton();
-//     }
-// };
-
-
-// function resetRecordButton() {
-//     recordVideo.innerHTML = `<i class="fa-solid fa-video"></i>`;
-//     recordVideo.style.color = "";
-//     isRecording = false;
-// }
-
 
 async function loadState() {
     try {

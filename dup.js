@@ -1,60 +1,70 @@
-let creatingOffscreen = null;
-let currentStreamId = null;   // Store for reuse
+// Newly added functions for video recording from record video button in popup.js. This is for recording the video stream with original audio.
+let videoMediaRecorder = null;
+let videoRecordedChunks = [];
+let isVideoRecording = false;
 
-async function ensureOffscreen() {
+chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === "START_VIDEO_RECORDING_INTERNAL") {
+        startVideoRecording(msg.streamId);
+    }
+    if (msg.type === "STOP_VIDEO_RECORDING") {
+        stopVideoRecording();
+    }
+});
+
+async function startVideoRecording(streamId) {
     try {
-        if (await chrome.offscreen.hasDocument()) return true;
-
-        if (creatingOffscreen) {
-            await creatingOffscreen;
-            return true;
+        console.log("🎥 [Recording] Starting with streamId...");
+        if (!streamId) {
+        console.log("Stream is not available for recording");
         }
 
-        creatingOffscreen = chrome.offscreen.createDocument({
-            url: "offscreen.html",
-            reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
-            justification: "For real-time dubbing and video recording"
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId }},
+            video: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId }}
         });
 
-        await creatingOffscreen;
-        creatingOffscreen = null;
-        return true;
-    } catch (e) {
-        console.error("Offscreen failed:", e);
-        return false;
+        const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") 
+            ? "video/webm;codecs=vp9,opus" 
+            : "video/webm;codecs=vp8,opus";
+
+        videoMediaRecorder = new MediaRecorder(stream, { mimeType });
+        videoRecordedChunks = [];
+
+        videoMediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) videoRecordedChunks.push(e.data);
+        };
+
+        videoMediaRecorder.onstop = () => {
+            if (videoRecordedChunks.length > 0) {
+                const blob = new Blob(videoRecordedChunks, { type: mimeType });
+                downloadVideo(blob);
+            }
+            stream.getTracks().forEach(track => track.stop());
+        };
+
+        videoMediaRecorder.start(1000);
+        isVideoRecording = true;
+
+        console.log("✅ Video recording started successfully");
+
+    } catch (err) {
+        console.error("❌ Failed to start video recording:", err);
     }
 }
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-
-    if (msg.type === "START_DUBBING" || msg.type === "START_VIDEO_RECORDING") {
-        (async () => {
-            await ensureOffscreen();
-
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-            // Get streamId only once
-            if (!currentStreamId) {
-                currentStreamId = await new Promise(resolve => {
-                    chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, resolve);
-                });
-            }
-
-            chrome.runtime.sendMessage({
-                type: msg.type === "START_DUBBING" ? "START_DUBBING_INTERNAL" : "START_VIDEO_RECORDING_INTERNAL",
-                streamId: currentStreamId,
-                tabId: tab.id,
-                language: msg.language
-            });
-        })();
-
-        sendResponse({ success: true });
-        return true;
+function stopVideoRecording() {
+    if (videoMediaRecorder) {
+        videoMediaRecorder.stop();
+        isVideoRecording = false;
     }
+}
 
-    if (msg.type === "STOP_DUBBING" || msg.type === "STOP_VIDEO_RECORDING") {
-        chrome.runtime.sendMessage({ type: msg.type });
-        sendResponse({ success: true });
-        return true;
-    }
-});
+function downloadVideo(blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `YouDub_Recording_${Date.now()}.webm`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
