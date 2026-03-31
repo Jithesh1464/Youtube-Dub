@@ -339,21 +339,58 @@ const recordVideo = document.getElementById("record-video");
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// const selfDubBtn = document.getElementById("auto-dub-self");
+// let isSelfDubbing = false;
+// let isProcessingSelfDub = false;
+
+// selfDubBtn.onclick = async () => {
+//     if (isProcessingSelfDub) return;
+
+//     if (!isSelfDubbing) {
+//         isSelfDubbing = true;
+//         selfDubBtn.innerHTML = `<i class="fa-solid fa-microphone"></i><span>Listening...</span>`;
+//         selfDubBtn.style.color = "#22ff88";
+
+//         await chrome.runtime.sendMessage({ type: "START_SELF_DUB" });
+
+//     } else {
+//         await chrome.runtime.sendMessage({ type: "STOP_SELF_DUB" });
+//         resetSelfDubButton();
+//     }
+// };
+
+// function resetSelfDubButton() {
+//     selfDubBtn.innerHTML = `<i class="fa-solid fa-microphone"></i>`;
+//     selfDubBtn.style.color = "";
+//     isSelfDubbing = false;
+//     isProcessingSelfDub = false;
+// }
+
+// // Feedback from background/offscreen
+// chrome.runtime.onMessage.addListener((msg) => {
+//     if (msg.type === "SELF_DUB_PROCESSING") {
+//         isProcessingSelfDub = true;
+//         selfDubBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Dubbing...</span>`;
+//     }
+
+//     if (msg.type === "SELF_DUB_FINISHED") {
+//         resetSelfDubButton();
+//     }
+// });
 const selfDubBtn = document.getElementById("auto-dub-self");
 let isSelfDubbing = false;
-let isProcessingSelfDub = false;
 
 selfDubBtn.onclick = async () => {
-    if (isProcessingSelfDub) return;
-
     if (!isSelfDubbing) {
+        // Start Listening
         isSelfDubbing = true;
-        selfDubBtn.innerHTML = `<i class="fa-solid fa-microphone"></i><span>Listening...</span>`;
+        selfDubBtn.innerHTML = `<i class="fa-solid fa-microphone"></i><span>Listening... (Click again to stop)</span>`;
         selfDubBtn.style.color = "#22ff88";
 
         await chrome.runtime.sendMessage({ type: "START_SELF_DUB" });
 
     } else {
+        // Stop & Process
         await chrome.runtime.sendMessage({ type: "STOP_SELF_DUB" });
         resetSelfDubButton();
     }
@@ -363,21 +400,7 @@ function resetSelfDubButton() {
     selfDubBtn.innerHTML = `<i class="fa-solid fa-microphone"></i>`;
     selfDubBtn.style.color = "";
     isSelfDubbing = false;
-    isProcessingSelfDub = false;
 }
-
-// Feedback from background/offscreen
-chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === "SELF_DUB_PROCESSING") {
-        isProcessingSelfDub = true;
-        selfDubBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Dubbing...</span>`;
-    }
-
-    if (msg.type === "SELF_DUB_FINISHED") {
-        resetSelfDubButton();
-    }
-});
-
 // let isRecording = false;
 
 // const selfDubBtn = document.getElementById("auto-dub-self");
@@ -515,6 +538,7 @@ startBtn.onclick = async () => {
         await stopDubbing();
     } else {
         await startDubbing(tab);
+        chrome.tabs.sendMessage(tab.id, { type: "START_OVERLAY_WAVEFORM" });
     }
 };
 
@@ -563,27 +587,6 @@ async function startDubbing(tab) {
 }
 }
 
-// async function stopDubbing() {
-
-//     // If there's no active dubbing tab, just exit silently. This prevents unnecessary errors.
-//     if (!currentDubbingTabId) return;
-
-//     try {
-//         await chrome.runtime.sendMessage({ type: "STOP_DUBBING" });
-
-//         try {
-//             await chrome.tabs.sendMessage(currentDubbingTabId, { type: "UNMUTE_VIDEO" });
-//         } catch (e) {}
-//     } catch (e) {
-//         console.warn(e);
-//     }
-
-//     await chrome.storage.local.remove("dubbingTabId");
-//     currentDubbingTabId = null;
-
-//     updateUIState(false);
-//     updateStatus("", "info");
-// }
 
 async function stopDubbing() {
     if (!currentDubbingTabId) return;
@@ -609,6 +612,12 @@ async function stopDubbing() {
 
         updateUIState(false);
         updateStatus("Dubbing stopped successfully", "success");
+        
+
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab) {
+            chrome.tabs.sendMessage(tab.id, { type: "STOP_OVERLAY_WAVEFORM" });
+        }
 
         // Auto clear message
         setTimeout(() => updateStatus("Ready", "info"), 1500);
@@ -758,6 +767,14 @@ chrome.runtime.onMessage.addListener((msg) => {
             timerInterval = setInterval(updateTimer, 1000);
         }
         updateWaveform(msg.level);
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id, { 
+                    type: "UPDATE_OVERLAY_WAVEFORM", 
+                    level: msg.level 
+                });
+            }
+        });
     }
 
     if (msg.type === "DUBBING_STOPPED") {
@@ -766,6 +783,11 @@ chrome.runtime.onMessage.addListener((msg) => {
         audioHistory = [];
         document.getElementById("time-info").innerText = "00:00";
         draw(); 
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id, { type: "STOP_OVERLAY_WAVEFORM" });
+            }
+        });
     }
 });
 

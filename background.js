@@ -72,31 +72,62 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     //     sendResponse({ success: true });
     //     return true;
     // }
+    // Self Voice Dub Handlers
+    // ====================== SELF VOICE DUB ======================
     if (msg.type === "START_SELF_DUB") {
-    (async () => {
-        await ensureOffscreen();
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab) {
-            chrome.tabs.sendMessage(tab.id, { type: "START_SELF_DUB_INTERNAL" });
-        }
-    })();
-    sendResponse({ success: true });
-    return true;
-}
+        (async () => {
+            await ensureOffscreen();
 
-    if (msg.type === "STOP_SELF_DUB") {
-        const [tab] = chrome.tabs.query({ active: true, currentWindow: true });
-        
-        if (tab) {
-            chrome.tabs.sendMessage(tab.id, { 
-                type: "STOP_SELF_DUB_INTERNAL" 
-            });
-        }
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab) {
+                chrome.tabs.sendMessage(tab.id, { 
+                    type: "START_SELF_DUB_INTERNAL" 
+                });
+            }
+        })();
+
         sendResponse({ success: true });
         return true;
     }
 
-    // ... your other listeners (START_DUBBING, STOP_DUBBING, etc.)
+    if (msg.type === "STOP_SELF_DUB") {
+        (async () => {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab) {
+                chrome.tabs.sendMessage(tab.id, { 
+                    type: "STOP_SELF_DUB_INTERNAL" 
+                });
+            }
+        })();
+
+        sendResponse({ success: true });
+        return true;
+    }
+    // if (msg.type === "START_SELF_DUB") {
+    // (async () => {
+    //     await ensureOffscreen();
+    //     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    //     if (tab) {
+    //         chrome.tabs.sendMessage(tab.id, { type: "START_SELF_DUB_INTERNAL" });
+    //     }
+    // })();
+    // sendResponse({ success: true });
+    // return true;
+    // }
+
+    // if (msg.type === "STOP_SELF_DUB") {
+    //     const [tab] = chrome.tabs.query({ active: true, currentWindow: true });
+        
+    //     if (tab) {
+    //         chrome.tabs.sendMessage(tab.id, { 
+    //             type: "STOP_SELF_DUB_INTERNAL" 
+    //         });
+    //     }
+    //     sendResponse({ success: true });
+    //     return true;
+    // }
+
+    // // ... your other listeners (START_DUBBING, STOP_DUBBING, etc.)
 });
 
 

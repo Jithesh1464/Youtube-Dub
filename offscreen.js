@@ -601,23 +601,23 @@ async function processSelfAudio(audioDataArray) {
 
         const audioData = new Float32Array(audioDataArray);
 
-        // Add some pre-processing to help Whisper
         const result = await transcriber(audioData, {
             language: "en",
             task: "translate",
             chunk_length_s: 30,
-            // These options often help with short/self-recorded audio
             temperature: 0.0,
-            compression_ratio_threshold: 2.4
+            compression_ratio_threshold: 2.4,     // Lower = more aggressive
+            no_speech_threshold: 0.4,             // Lower = more sensitive to speech
+            condition_on_previous_text: false
         });
 
         const cleanedText = result.text.replace(/\[.*?\]/g, "").trim();
 
-        if (cleanedText.length > 5) {
+        if (cleanedText.length > 3) {     // Lower threshold for testing
             console.log("🗣️ Self Dub Output:", cleanedText);
             speakText(cleanedText);
         } else {
-            console.log("⚠️ Self Dub: Text too short or empty");
+            console.log("⚠️ Self Dub: Text too short. Raw output was:", result.text);
         }
 
     } catch (err) {
@@ -626,6 +626,44 @@ async function processSelfAudio(audioDataArray) {
         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
     }
 }
+// THIS PROCESSSELFAUDIO WORKED 
+// async function processSelfAudio(audioDataArray) {
+//     if (!transcriber) {
+//         console.warn("Transcriber not ready");
+//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
+//         return;
+//     }
+
+//     try {
+//         console.log("🧠 Processing self-recorded audio with Whisper...");
+
+//         const audioData = new Float32Array(audioDataArray);
+
+//         // Add some pre-processing to help Whisper
+//         const result = await transcriber(audioData, {
+//             language: "en",
+//             task: "translate",
+//             chunk_length_s: 30,
+//             // These options often help with short/self-recorded audio
+//             temperature: 0.0,
+//             compression_ratio_threshold: 2.4
+//         });
+
+//         const cleanedText = result.text.replace(/\[.*?\]/g, "").trim();
+
+//         if (cleanedText.length > 5) {
+//             console.log("🗣️ Self Dub Output:", cleanedText);
+//             speakText(cleanedText);
+//         } else {
+//             console.log("⚠️ Self Dub: Text too short or empty");
+//         }
+
+//     } catch (err) {
+//         console.error("Self audio processing failed:", err);
+//     } finally {
+//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
+//     }
+// }
 // ================================================
 // offscreen.js - Updated with Shared Stream Logic
 // ================================================

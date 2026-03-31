@@ -55,7 +55,8 @@
       "ort-wasm-simd-threaded.wasm",
       "ort-wasm-simd-threaded.jsep.wasm",
       "image3.png",
-      "audio-processor.js"
+      "audio-processor.js",
+      "images/image4.png"
     ],
     "matches": ["https://www.youtube.com/*"]
 
