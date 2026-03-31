@@ -37,7 +37,68 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         handleStopDubbing(sendResponse);
         return true;
     }
+// to handle self dubbing start/stop from popup, we forward the message to offscreen for handling the recording logic there, and we can keep background.js focused on dubbing logic and state management
+    // if (msg.type === "START_SELF_DUB") {
+    //     chrome.runtime.sendMessage({ type: "START_SELF_DUB_INTERNAL" });
+    //     sendResponse({ success: true });
+    //     return true;
+    // }
+
+    // if (msg.type === "STOP_SELF_DUB") {
+    //     chrome.runtime.sendMessage({ type: "STOP_SELF_DUB_INTERNAL" });
+    //     sendResponse({ success: true });
+    //     return true;
+    // }
+
+    
 });
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+
+    // === SELF VOICE DUB ===
+    // if (msg.type === "START_SELF_DUB") {
+    //     (async () => {
+    //         await ensureOffscreen();   // Ensure Offscreen is ready (good practice)
+
+    //         // Forward to Content Script (Important: Use chrome.tabs.sendMessage)
+    //         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            
+    //         if (tab) {
+    //             chrome.tabs.sendMessage(tab.id, { 
+    //                 type: "START_SELF_DUB_INTERNAL" 
+    //             });
+    //         }
+    //     })();
+
+    //     sendResponse({ success: true });
+    //     return true;
+    // }
+    if (msg.type === "START_SELF_DUB") {
+    (async () => {
+        await ensureOffscreen();
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab) {
+            chrome.tabs.sendMessage(tab.id, { type: "START_SELF_DUB_INTERNAL" });
+        }
+    })();
+    sendResponse({ success: true });
+    return true;
+}
+
+    if (msg.type === "STOP_SELF_DUB") {
+        const [tab] = chrome.tabs.query({ active: true, currentWindow: true });
+        
+        if (tab) {
+            chrome.tabs.sendMessage(tab.id, { 
+                type: "STOP_SELF_DUB_INTERNAL" 
+            });
+        }
+        sendResponse({ success: true });
+        return true;
+    }
+
+    // ... your other listeners (START_DUBBING, STOP_DUBBING, etc.)
+});
+
 
 async function handleStartDubbing(msg, sendResponse) {
     try {

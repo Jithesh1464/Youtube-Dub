@@ -459,6 +459,173 @@ function downloadVideo(blob) {
     a.click();
     URL.revokeObjectURL(url);
 }
+
+// ====================== SELF VOICE DUB ======================
+// let selfMicStream = null;
+// let selfMediaRecorder = null;
+// let selfRecordedChunks = [];
+// let selfSilenceTimeout = null;
+// let isSelfDubbingActive = false;
+
+chrome.runtime.onMessage.addListener((msg) => {
+    
+    if (msg.type === "PROCESS_SELF_AUDIO") {
+        processSelfAudio(msg.audioData);
+    }
+
+    // ... your existing listeners for START_STREAM, STOP_DUBBING, etc.
+});
+
+// async function startSelfVoiceDub() {
+//     try {
+//         console.log("🎤 Self Voice Dub: Requesting microphone access...");
+
+//         // Force a new permission request with better options
+//         selfMicStream = await navigator.mediaDevices.getUserMedia({
+//             audio: {
+//                 echoCancellation: true,
+//                 noiseSuppression: true,
+//                 autoGainControl: true,
+//                 sampleRate: 16000
+//             }
+//         });
+
+//         isSelfDubbingActive = true;
+//         selfRecordedChunks = [];
+
+//         selfMediaRecorder = new MediaRecorder(selfMicStream, {
+//             mimeType: "audio/webm;codecs=opus"
+//         });
+
+//         selfMediaRecorder.ondataavailable = (e) => {
+//             if (e.data.size > 0) selfRecordedChunks.push(e.data);
+//         };
+
+//         selfMediaRecorder.start(500);
+
+//         resetSilenceTimer();
+
+//         console.log("✅ Microphone access granted. Now listening...");
+
+//     } catch (err) {
+//         console.error("Microphone access error:", err.name, err.message);
+
+//         let userMessage = "Microphone access failed.";
+
+//         if (err.name === "NotAllowedError") {
+//             userMessage = "Microphone permission was blocked.\n\nPlease go to chrome://settings/content/microphone and allow access for this extension.";
+//         } else if (err.name === "NotFoundError") {
+//             userMessage = "No microphone found. Please connect a microphone.";
+//         }
+
+//         chrome.runtime.sendMessage({ 
+//             type: "SELF_DUB_ERROR", 
+//             error: userMessage 
+//         });
+
+//         resetSelfDubButtonUI();
+//     }
+// }
+
+// // Add this missing function
+// function resetSelfDubButtonUI() {
+//     chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
+//     isSelfDubbingActive = false;
+// }
+
+// function resetSilenceTimer() {
+//     if (selfSilenceTimeout) clearTimeout(selfSilenceTimeout);
+
+//     selfSilenceTimeout = setTimeout(() => {
+//         if (isSelfDubbingActive) {
+//             console.log("🛑 5 seconds silence detected → Processing...");
+//             processSelfRecordedAudio();
+//         }
+//     }, 5000);
+// }
+
+// function stopSelfVoiceDub() {
+//     if (selfMediaRecorder) selfMediaRecorder.stop();
+//     if (selfMicStream) selfMicStream.getTracks().forEach(track => track.stop());
+//     if (selfSilenceTimeout) clearTimeout(selfSilenceTimeout);
+
+//     isSelfDubbingActive = false;
+//     console.log("⏹️ Self Voice Dub stopped manually");
+// }
+
+// async function processSelfRecordedAudio() {
+//     if (selfRecordedChunks.length === 0) {
+//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
+//         return;
+//     }
+
+//     isSelfDubbingActive = false;
+//     chrome.runtime.sendMessage({ type: "SELF_DUB_PROCESSING" });
+
+//     try {
+//         const audioBlob = new Blob(selfRecordedChunks, { type: "audio/webm" });
+//         const arrayBuffer = await audioBlob.arrayBuffer();
+
+//         const audioContext = new AudioContext();
+//         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+//         const audioData = audioBuffer.getChannelData(0);
+
+//         const result = await transcriber(audioData, {
+//             language: "en",           // Change as needed
+//             task: "translate",
+//         });
+
+//         const cleanedText = result.text.replace(/\[.*?\]/g, "").trim();
+
+//         if (cleanedText.length > 5) {
+//             console.log("🗣️ Self Dub Output:", cleanedText);
+//             speakText(cleanedText);        // Your existing speakText function
+//         }
+
+//     } catch (err) {
+//         console.error("Self dub processing error:", err);
+//     } finally {
+//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
+//     }
+// }
+
+async function processSelfAudio(audioDataArray) {
+    if (!transcriber) {
+        console.warn("Transcriber not ready");
+        chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
+        return;
+    }
+
+    try {
+        console.log("🧠 Processing self-recorded audio with Whisper...");
+
+        const audioData = new Float32Array(audioDataArray);
+
+        // Add some pre-processing to help Whisper
+        const result = await transcriber(audioData, {
+            language: "en",
+            task: "translate",
+            chunk_length_s: 30,
+            // These options often help with short/self-recorded audio
+            temperature: 0.0,
+            compression_ratio_threshold: 2.4
+        });
+
+        const cleanedText = result.text.replace(/\[.*?\]/g, "").trim();
+
+        if (cleanedText.length > 5) {
+            console.log("🗣️ Self Dub Output:", cleanedText);
+            speakText(cleanedText);
+        } else {
+            console.log("⚠️ Self Dub: Text too short or empty");
+        }
+
+    } catch (err) {
+        console.error("Self audio processing failed:", err);
+    } finally {
+        chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
+    }
+}
 // ================================================
 // offscreen.js - Updated with Shared Stream Logic
 // ================================================
