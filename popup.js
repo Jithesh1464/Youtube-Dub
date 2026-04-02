@@ -339,7 +339,6 @@ const recordVideo = document.getElementById("record-video");
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// const selfDubBtn = document.getElementById("auto-dub-self");
 // let isSelfDubbing = false;
 // let isProcessingSelfDub = false;
 
@@ -401,53 +400,6 @@ function resetSelfDubButton() {
     selfDubBtn.style.color = "";
     isSelfDubbing = false;
 }
-// let isRecording = false;
-
-// const selfDubBtn = document.getElementById("auto-dub-self");
-// let isSelfDubbing = false;
-// let isProcessingSelfDub = false;
-
-// selfDubBtn.onclick = async () => {
-//     if (isProcessingSelfDub) return;
-
-//     if (!isSelfDubbing) {
-//         // Start Self Dub
-//         isSelfDubbing = true;
-//         selfDubBtn.innerHTML = `<i class="fa-solid fa-microphone"></i>`;
-//         selfDubBtn.style.color = "#22ff88";
-
-//         await chrome.runtime.sendMessage({ type: "START_SELF_DUB" });
-
-//     } else {
-//         // Manual Stop
-//         await chrome.runtime.sendMessage({ type: "STOP_SELF_DUB" });
-//         resetSelfDubButton();
-//     }
-// };
-
-// function resetSelfDubButton() {
-//     selfDubBtn.innerHTML = `<i class="fa-solid fa-microphone"></i>`;
-//     selfDubBtn.style.color = "";
-//     isSelfDubbing = false;
-//     isProcessingSelfDub = false;
-// }
-
-// // Listen for status updates from background/offscreen
-// chrome.runtime.onMessage.addListener((msg) => {
-//     if (msg.type === "SELF_DUB_PROCESSING") {
-//         isProcessingSelfDub = true;
-//         selfDubBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin">`;
-//     }
-
-//     if (msg.type === "SELF_DUB_FINISHED") {
-//         resetSelfDubButton();
-//     }
-//     if (msg.type === "SELF_DUB_ERROR") {
-//         alert(msg.error);   // Show error to user
-//         resetSelfDubButton();
-//     }
-// });
-
 
 async function updateRecordButtonState() {
     const response = await chrome.runtime.sendMessage({ type: "GET_RECORDING_STATUS" });

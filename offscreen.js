@@ -82,10 +82,19 @@ initializeModel();
 
 // ====================== MESSAGE LISTENER ======================
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    // if (msg.type === "SET_VIDEO_SYNC") {
+    //     // Forward the sync time to the AudioWorklet thread
+    //     if (workletNode) {
+    //         workletNode.port.postMessage({
+    //             type: "SET_SYNC_INTERNAL",
+    //             startTime: msg.startTime
+    //         });
+    //     }
+    // }
     if (msg.type === "START_STREAM") {
         (async () => {
             try {
-                await startDubbingStream(msg.streamId, msg.language || "hi");
+                await startDubbingStream(msg.streamId, msg.language || "hi", msg.startTime);
                 sendResponse({ success: true });
             } catch (error) {
                 console.error("START_STREAM failed:", error);
@@ -101,7 +110,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 });
 
-async function startDubbingStream(streamId, language) {
+async function startDubbingStream(streamId, language,startTime) {
     if (!streamId) throw new Error("Missing streamId");
 
     // Clean any previous session
@@ -154,8 +163,8 @@ async function startDubbingStream(streamId, language) {
 
         // Optional: Start debug recording (only if you want to verify raw audio)
         // startRecording(currentStream);   // Uncomment only when needed
-
-        await initializeAudioPipeline(currentStream, language);
+        await initializeAudioPipeline(currentStream, language, startTime);
+        // await initializeAudioPipeline(currentStream, language);
 
         console.log("🎯 startDubbingStream completed successfully");
 
@@ -165,17 +174,28 @@ async function startDubbingStream(streamId, language) {
     }
 }
 
-async function initializeAudioPipeline(stream, language) {
+async function initializeAudioPipeline(stream, language,startTime) {
     audioContext = new AudioContext({ sampleRate: 16000 });
+    await audioContext.resume(); // ADD THIS
+    console.log("AudioContext State:", audioContext.state);
 
     await audioContext.audioWorklet.addModule("audio-processor.js");
 
     workletNode = new AudioWorkletNode(audioContext, "audio-processor");
     source = audioContext.createMediaStreamSource(stream);
-
+    const silentGain = audioContext.createGain();
+    silentGain.gain.value = 0;
     // Connect ONLY to worklet
     source.connect(workletNode);
+    // offscreen.js inside initializeAudioPipeline
 
+
+    workletNode.connect(silentGain);
+    silentGain.connect(audioContext.destination); // ADD THIS
+    workletNode.port.postMessage({
+        type: "SET_SYNC_INTERNAL",
+        startTime: startTime
+    });
     // === CRITICAL FIXES FOR AUDIO CAPTURE ===
     const audioTracks = stream.getAudioTracks();
     audioTracks.forEach(track => {
@@ -219,7 +239,7 @@ async function initializeAudioPipeline(stream, language) {
             console.log(`🚀 Starting transcription for chunk #${msg.sequence}`);
 
             try {
-                await processChunk(msg.data, language);
+                await processChunk(msg.data, language, msg.ytStart, msg.ytEnd);
                 console.log(`✅ Finished processing chunk #${msg.sequence}`);
             } catch (e) {
                 console.error(`❌ Chunk ${msg.sequence} failed:`, e);
@@ -238,7 +258,7 @@ function calculateRMS(audioData) {
     return Math.sqrt(sum / audioData.length);
 }
 
-async function processChunk(audioData, language) {
+async function processChunk(audioData, language, ytStart, ytEnd) {
     if (!transcriber) {
         console.warn("Transcriber not ready yet");
         return;
@@ -255,12 +275,115 @@ async function processChunk(audioData, language) {
 
         if (cleanedText.length > 8) {
             console.log("🗣️ Translated:", cleanedText);
-            speakText(cleanedText);
+            console.log(`[${ytStart.toFixed(2)}s - ${ytEnd.toFixed(2)}s] Translation: ${cleanedText}`);
+            syncSpeakText(cleanedText,ytStart,ytEnd);
         }
     } catch (e) {
         console.error("Transcription error:", e);
     }
 }
+
+// async function syncSpeakText(text, ytStart, ytEnd) {
+//     // 1. Ask the content script for the EXACT current time of the video right now
+//     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+//     if (!tab) return;
+
+//     const response = await chrome.tabs.sendMessage(tab.id, { type: "GET_CURRENT_VIDEO_TIME" });
+//     const currentVideoTime = response?.videoTime || 0;
+
+//     const utterance = new SpeechSynthesisUtterance(text);
+//     utterance.lang = "en-US";
+
+//     // 2. CALCULATE LAG
+//     // If currentVideoTime is 15s and ytStart was 10s, we are 5 seconds late.
+//     const lag = currentVideoTime - ytStart;
+
+//     if (lag > 0.5) {
+//         // LATE: Increase speed to catch up
+//         // Formula: Base Rate (1.0) + (lag factor)
+//         // If we are 2s late, play at 1.4x speed. Max out at 2.0x so it's still readable.
+//         utterance.rate = Math.min(1.0 + (lag * 0.2), 2.0);
+//         console.log(`[Sync] Lag detected: ${lag.toFixed(2)}s. Adjusting rate to: ${utterance.rate.toFixed(2)}`);
+//     } else if (lag < -0.5) {
+//         // EARLY: This rarely happens in live streaming, but if so, wait.
+//         const waitTime = Math.abs(lag) * 1000;
+//         console.log(`[Sync] Early by ${Math.abs(lag)}s. Waiting...`);
+//         await new Promise(r => setTimeout(r, waitTime));
+//         utterance.rate = 1.0;
+//     } else {
+//         utterance.rate = 1.05; // Perfect timing
+//     }
+
+//     // 3. REQUIREMENT #2 HOOK: Pause if AI is too slow
+//     // If the lag is more than 5 seconds, tell the content script to pause the video
+//     if (lag > 5.0) {
+//         chrome.tabs.sendMessage(tab.id, { type: "PAUSE_VIDEO_FOR_DUB" });
+//     }
+
+//     // 4. QUEUE MANAGEMENT
+//     utterance.onend = () => {
+//         ttsQueue.shift();
+//         if (ttsQueue.length > 0) {
+//             const next = ttsQueue[0];
+//             speechSynthesis.speak(next);
+//             // After speaking, tell content script to resume if it was paused
+//             chrome.tabs.sendMessage(tab.id, { type: "RESUME_VIDEO_AFTER_DUB" });
+//         }
+//     };
+
+//     ttsQueue.push(utterance);
+//     if (!speechSynthesis.speaking) {
+//         speechSynthesis.speak(utterance);
+//     }
+// }
+
+async function syncSpeakText(text, ytStart, ytEnd) {
+    // 1. Ask BACKGROUND to get time (Proxy because Offscreen can't use chrome.tabs)
+    const response = await chrome.runtime.sendMessage({ type: "PROXY_GET_TIME" });
+    const currentVideoTime = response?.videoTime || 0;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+
+    // 2. CALCULATE LAG
+    const lag = currentVideoTime - ytStart;
+
+    if (lag > 0.5) {
+        // LATE: Increase speed (Your formula)
+        utterance.rate = Math.min(1.0 + (lag * 0.2), 2.0);
+        console.log(`[Sync] Lag: ${lag.toFixed(2)}s. Rate: ${utterance.rate.toFixed(2)}`);
+    } else if (lag < -0.5) {
+        // EARLY: Wait logic (From your present version)
+        const waitTime = Math.abs(lag) * 1000;
+        console.log(`[Sync] Early by ${Math.abs(lag)}s. Waiting...`);
+        await new Promise(r => setTimeout(r, waitTime));
+        utterance.rate = 1.0;
+    } else {
+        utterance.rate = 1.05; // Perfect timing
+    }
+
+    // 3. PAUSE LOGIC (If lag is too high, tell background to pause the video)
+    if (lag > 5.0) {
+        chrome.runtime.sendMessage({ type: "PROXY_PAUSE" });
+    }
+
+    // 4. QUEUE MANAGEMENT
+    utterance.onend = () => {
+        ttsQueue.shift();
+        if (ttsQueue.length > 0) {
+            // Speak next item in queue
+            speechSynthesis.speak(ttsQueue[0]);
+        } else {
+            // ONLY Resume if the whole queue is empty (Safe approach)
+            chrome.runtime.sendMessage({ type: "PROXY_RESUME" });
+        }
+    };
+
+    ttsQueue.push(utterance);
+    if (!speechSynthesis.speaking) {
+        speechSynthesis.speak(utterance);
+    }
+} 
 
 function speakText(text) {
     const utterance = new SpeechSynthesisUtterance(text);
@@ -460,12 +583,6 @@ function downloadVideo(blob) {
     URL.revokeObjectURL(url);
 }
 
-// ====================== SELF VOICE DUB ======================
-// let selfMicStream = null;
-// let selfMediaRecorder = null;
-// let selfRecordedChunks = [];
-// let selfSilenceTimeout = null;
-// let isSelfDubbingActive = false;
 
 chrome.runtime.onMessage.addListener((msg) => {
     
@@ -476,118 +593,6 @@ chrome.runtime.onMessage.addListener((msg) => {
     // ... your existing listeners for START_STREAM, STOP_DUBBING, etc.
 });
 
-// async function startSelfVoiceDub() {
-//     try {
-//         console.log("🎤 Self Voice Dub: Requesting microphone access...");
-
-//         // Force a new permission request with better options
-//         selfMicStream = await navigator.mediaDevices.getUserMedia({
-//             audio: {
-//                 echoCancellation: true,
-//                 noiseSuppression: true,
-//                 autoGainControl: true,
-//                 sampleRate: 16000
-//             }
-//         });
-
-//         isSelfDubbingActive = true;
-//         selfRecordedChunks = [];
-
-//         selfMediaRecorder = new MediaRecorder(selfMicStream, {
-//             mimeType: "audio/webm;codecs=opus"
-//         });
-
-//         selfMediaRecorder.ondataavailable = (e) => {
-//             if (e.data.size > 0) selfRecordedChunks.push(e.data);
-//         };
-
-//         selfMediaRecorder.start(500);
-
-//         resetSilenceTimer();
-
-//         console.log("✅ Microphone access granted. Now listening...");
-
-//     } catch (err) {
-//         console.error("Microphone access error:", err.name, err.message);
-
-//         let userMessage = "Microphone access failed.";
-
-//         if (err.name === "NotAllowedError") {
-//             userMessage = "Microphone permission was blocked.\n\nPlease go to chrome://settings/content/microphone and allow access for this extension.";
-//         } else if (err.name === "NotFoundError") {
-//             userMessage = "No microphone found. Please connect a microphone.";
-//         }
-
-//         chrome.runtime.sendMessage({ 
-//             type: "SELF_DUB_ERROR", 
-//             error: userMessage 
-//         });
-
-//         resetSelfDubButtonUI();
-//     }
-// }
-
-// // Add this missing function
-// function resetSelfDubButtonUI() {
-//     chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
-//     isSelfDubbingActive = false;
-// }
-
-// function resetSilenceTimer() {
-//     if (selfSilenceTimeout) clearTimeout(selfSilenceTimeout);
-
-//     selfSilenceTimeout = setTimeout(() => {
-//         if (isSelfDubbingActive) {
-//             console.log("🛑 5 seconds silence detected → Processing...");
-//             processSelfRecordedAudio();
-//         }
-//     }, 5000);
-// }
-
-// function stopSelfVoiceDub() {
-//     if (selfMediaRecorder) selfMediaRecorder.stop();
-//     if (selfMicStream) selfMicStream.getTracks().forEach(track => track.stop());
-//     if (selfSilenceTimeout) clearTimeout(selfSilenceTimeout);
-
-//     isSelfDubbingActive = false;
-//     console.log("⏹️ Self Voice Dub stopped manually");
-// }
-
-// async function processSelfRecordedAudio() {
-//     if (selfRecordedChunks.length === 0) {
-//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
-//         return;
-//     }
-
-//     isSelfDubbingActive = false;
-//     chrome.runtime.sendMessage({ type: "SELF_DUB_PROCESSING" });
-
-//     try {
-//         const audioBlob = new Blob(selfRecordedChunks, { type: "audio/webm" });
-//         const arrayBuffer = await audioBlob.arrayBuffer();
-
-//         const audioContext = new AudioContext();
-//         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-//         const audioData = audioBuffer.getChannelData(0);
-
-//         const result = await transcriber(audioData, {
-//             language: "en",           // Change as needed
-//             task: "translate",
-//         });
-
-//         const cleanedText = result.text.replace(/\[.*?\]/g, "").trim();
-
-//         if (cleanedText.length > 5) {
-//             console.log("🗣️ Self Dub Output:", cleanedText);
-//             speakText(cleanedText);        // Your existing speakText function
-//         }
-
-//     } catch (err) {
-//         console.error("Self dub processing error:", err);
-//     } finally {
-//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
-//     }
-// }
 
 async function processSelfAudio(audioDataArray) {
     if (!transcriber) {
@@ -626,388 +631,3 @@ async function processSelfAudio(audioDataArray) {
         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
     }
 }
-// THIS PROCESSSELFAUDIO WORKED 
-// async function processSelfAudio(audioDataArray) {
-//     if (!transcriber) {
-//         console.warn("Transcriber not ready");
-//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
-//         return;
-//     }
-
-//     try {
-//         console.log("🧠 Processing self-recorded audio with Whisper...");
-
-//         const audioData = new Float32Array(audioDataArray);
-
-//         // Add some pre-processing to help Whisper
-//         const result = await transcriber(audioData, {
-//             language: "en",
-//             task: "translate",
-//             chunk_length_s: 30,
-//             // These options often help with short/self-recorded audio
-//             temperature: 0.0,
-//             compression_ratio_threshold: 2.4
-//         });
-
-//         const cleanedText = result.text.replace(/\[.*?\]/g, "").trim();
-
-//         if (cleanedText.length > 5) {
-//             console.log("🗣️ Self Dub Output:", cleanedText);
-//             speakText(cleanedText);
-//         } else {
-//             console.log("⚠️ Self Dub: Text too short or empty");
-//         }
-
-//     } catch (err) {
-//         console.error("Self audio processing failed:", err);
-//     } finally {
-//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
-//     }
-// }
-// ================================================
-// offscreen.js - Updated with Shared Stream Logic
-// ================================================
-
-// ================================================
-// offscreen.js - Shared Stream + Fixed Recording
-// ================================================
-
-// import { pipeline, env } from './transformers.min.js';
-
-// let audioContext = null;
-// let source = null;
-// let workletNode = null;
-// let transcriber = null;
-
-// let mainStream = null;           // Main captured stream
-// let dubbingStream = null;        // Clone for dubbing
-// let recordingStream = null;      // Clone for recording
-
-// let isProcessing = false;
-// let canStartAI = false;
-// let ttsQueue = [];
-
-// // ====================== VIDEO RECORDING ======================
-// let videoMediaRecorder = null;
-// let videoRecordedChunks = [];
-// let isVideoRecording = false;
-
-// // ====================== MODEL INITIALIZATION ======================
-// async function initializeModel() {
-//     if (transcriber) return;
-
-//     try {
-//         const baseUrl = chrome.runtime.getURL('');
-
-//         env.allowLocalModels = true;
-//         env.allowRemoteModels = false;
-
-//         env.backends.onnx.wasm.wasmPaths = {
-//             'ort-wasm-simd-threaded.wasm': baseUrl + 'ort-wasm-simd-threaded.wasm',
-//             'ort-wasm-simd-threaded.jsep.wasm': baseUrl + 'ort-wasm-simd-threaded.jsep.wasm'
-//         };
-//         env.backends.onnx.wasm.jsepPath = baseUrl + 'ort-wasm-simd-threaded.jsep.mjs';
-
-//         console.log("🚀 Loading Whisper tiny model from LOCAL files...");
-
-//         transcriber = await pipeline("automatic-speech-recognition", "onnx-community/whisper-tiny", {
-//             device: "webgpu",
-//             dtype: "fp32",
-//             progress_callback: (data) => {
-//                 console.log("Model loading progress:", data);
-//                 if (data.status === "progress") {
-//                     const percent = Math.round(data.progress || 0);
-//                     document.getElementById("status").textContent = `Loading AI model... ${percent}%`;
-//                 }
-//             }
-//         });
-
-//         console.log("✅ Whisper model loaded successfully (WebGPU)");
-//         document.getElementById("status").textContent = "AI Engine Ready (WebGPU)";
-
-//     } catch (err) {
-//         console.warn("WebGPU failed, falling back to WASM:", err.message);
-//         // WASM fallback code (your existing one)
-//     }
-// }
-
-// initializeModel();
-
-// // ====================== MESSAGE LISTENER ======================
-// chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-//     if (msg.type === "START_STREAM") {
-//         (async () => {
-//             try {
-//                 await startDubbingStream(msg.streamId, msg.language || "hi");
-//                 sendResponse({ success: true });
-//             } catch (error) {
-//                 console.error("START_STREAM failed:", error);
-//                 sendResponse({ success: false, error: error.message });
-//             }
-//         })();
-//         return true;
-//     }
-
-//     if (msg.type === "STOP_DUBBING") {
-//         stopDubbing();
-//         sendResponse({ success: true });
-//     }
-
-//     if (msg.type === "START_VIDEO_RECORDING_INTERNAL") {
-//         startVideoRecordingInternal(msg.streamId);
-//         sendResponse({ success: true });
-//     }
-
-//     if (msg.type === "STOP_VIDEO_RECORDING") {
-//         stopVideoRecording();
-//         sendResponse({ success: true });
-//     }
-// });
-
-// // ====================== SHARED STREAM LOGIC ======================
-// async function getOrCreateMainStream(streamId) {
-//     if (mainStream) return mainStream;
-
-//     mainStream = await navigator.mediaDevices.getUserMedia({
-//         audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId }},
-//         video: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId }}
-//     });
-
-//     console.log("✅ Main shared stream created");
-//     return mainStream;
-// }
-
-// // ====================== START DUBBING ======================
-// async function startDubbingStream(streamId, language) {
-//     try {
-//         const stream = await getOrCreateMainStream(streamId);
-        
-//         // Create a clone for dubbing
-//         dubbingStream = stream.clone();
-
-//         const audioTracks = dubbingStream.getAudioTracks();
-//         audioTracks.forEach(track => track.enabled = true);
-
-//         await new Promise(r => setTimeout(r, 600));
-
-//         await initializeAudioPipeline(dubbingStream, language);
-
-//         console.log("🎙️ Dubbing started using cloned stream");
-
-//     } catch (err) {
-//         console.error("❌ Dubbing start failed:", err);
-//     }
-// }
-
-// // ====================== START VIDEO RECORDING ======================
-// async function startVideoRecordingInternal(streamId) {
-//     try {
-//         const stream = await getOrCreateMainStream(streamId);
-        
-//         // Create a clone for recording
-//         recordingStream = stream.clone();
-
-//         const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") 
-//             ? "video/webm;codecs=vp9,opus" 
-//             : "video/webm;codecs=vp8,opus";
-
-//         videoMediaRecorder = new MediaRecorder(recordingStream, { mimeType });
-//         videoRecordedChunks = [];
-
-//         videoMediaRecorder.ondataavailable = (e) => {
-//             if (e.data.size > 0) videoRecordedChunks.push(e.data);
-//         };
-
-//         videoMediaRecorder.onstop = () => {
-//             if (videoRecordedChunks.length > 0) {
-//                 const blob = new Blob(videoRecordedChunks, { type: mimeType });
-//                 downloadVideo(blob);
-//             }
-//             if (recordingStream) {
-//                 recordingStream.getTracks().forEach(track => track.stop());
-//                 recordingStream = null;
-//             }
-//         };
-
-//         videoMediaRecorder.start(1000);
-//         isVideoRecording = true;
-
-//         console.log("✅ Video recording started using cloned stream");
-
-//     } catch (err) {
-//         console.error("❌ Failed to start video recording:", err);
-//     }
-// }
-
-// function stopVideoRecording() {
-//     if (videoMediaRecorder) {
-//         videoMediaRecorder.stop();
-//         isVideoRecording = false;
-//     }
-// }
-
-// function downloadVideo(blob) {
-//     const url = URL.createObjectURL(blob);
-//     const a = document.createElement("a");
-//     a.href = url;
-//     a.download = `YouDub_Recording_${Date.now()}.webm`;
-//     a.click();
-//     URL.revokeObjectURL(url);
-// }
-
-// // ====================== EXISTING DUBBING FUNCTIONS (Kept as-is) ======================
-// // async function initializeAudioPipeline(stream, language) {
-// //     // ... your existing initializeAudioPipeline function (unchanged) ...
-// //     // Paste your full initializeAudioPipeline, calculateRMS, processChunk, speakText, stopDubbing here
-// // }
-
-// // function calculateRMS(audioData) { /* your existing function */ }
-// // async function processChunk(audioData, language) { /* your existing function */ }
-// // function speakText(text) { /* your existing function */ }
-
-// async function initializeAudioPipeline(stream, language) {
-//     audioContext = new AudioContext({ sampleRate: 16000 });
-
-//     await audioContext.audioWorklet.addModule("audio-processor.js");
-
-//     workletNode = new AudioWorkletNode(audioContext, "audio-processor");
-//     source = audioContext.createMediaStreamSource(stream);
-
-//     // Connect ONLY to worklet
-//     source.connect(workletNode);
-
-//     // === CRITICAL FIXES FOR AUDIO CAPTURE ===
-//     const audioTracks = stream.getAudioTracks();
-//     audioTracks.forEach(track => {
-//         track.enabled = true;
-//         console.log(`Audio track enabled: ${track.enabled}, muted: ${track.muted}`);
-//     });
-
-//     // Give the stream a moment to "warm up"
-//     await new Promise(resolve => setTimeout(resolve, 800));
-
-//     console.log(`✅ Audio pipeline initialized | Tracks: ${audioTracks.length}`);
-
-//     // Ensure model is loaded
-//     await initializeModel();
-
-//     canStartAI = true;
-
-//     // Message handler (keep the detailed debug version)
-//     workletNode.port.onmessage = async (event) => {
-//         const msg = event.data;
-
-//         if (msg?.type === "volume_update") {
-//             chrome.runtime.sendMessage({ type: "AUDIO_LEVEL", level: msg.level }).catch(() => {});
-//             return;
-//         }
-
-//         if (msg?.type === "audio_chunk" && msg.data instanceof Float32Array) {
-//             console.log(`📦 Received chunk #${msg.sequence} | Size: ${msg.data.length} samples | RMS: ${calculateRMS(msg.data).toFixed(4)}`);
-
-//             if (!canStartAI || isProcessing) return;
-
-//             const rms = calculateRMS(msg.data);
-//             console.log(`🎤 Volume level (RMS): ${rms.toFixed(4)}`);
-
-//             if (rms < 0.01) {                    // Slightly increased threshold
-//                 console.log("🔇 Chunk too silent, skipping");
-//                 return;
-//             }
-
-//             isProcessing = true;
-//             console.log(`🚀 Starting transcription for chunk #${msg.sequence}`);
-
-//             try {
-//                 await processChunk(msg.data, language);
-//                 console.log(`✅ Finished processing chunk #${msg.sequence}`);
-//             } catch (e) {
-//                 console.error(`❌ Chunk ${msg.sequence} failed:`, e);
-//             } finally {
-//                 isProcessing = false;
-//             }
-//         }
-//     };
-// }
-
-// function calculateRMS(audioData) {
-//     let sum = 0;
-//     for (let i = 0; i < audioData.length; i++) {
-//         sum += audioData[i] * audioData[i];
-//     }
-//     return Math.sqrt(sum / audioData.length);
-// }
-
-// async function processChunk(audioData, language) {
-//     if (!transcriber) {
-//         console.warn("Transcriber not ready yet");
-//         return;
-//     }
-
-//     try {
-//         const result = await transcriber(audioData, {
-//             language: language,
-//             task: "translate",
-//             chunk_length_s: 25,
-//         });
-
-//         const cleanedText = result.text.replace(/\[.*?\]/g, "").trim();
-
-//         if (cleanedText.length > 8) {
-//             console.log("🗣️ Translated:", cleanedText);
-//             speakText(cleanedText);
-//         }
-//     } catch (e) {
-//         console.error("Transcription error:", e);
-//     }
-// }
-
-// function speakText(text) {
-//     const utterance = new SpeechSynthesisUtterance(text);
-//     utterance.lang = "en-US";
-//     utterance.rate = 1.05;
-
-//     utterance.onend = () => {
-//         ttsQueue.shift();
-//         if (ttsQueue.length > 0) {
-//             speechSynthesis.speak(ttsQueue[0]);
-//         }
-//     };
-
-//     ttsQueue.push(utterance);
-//     if (!speechSynthesis.speaking) {
-//         speechSynthesis.speak(utterance);
-//     }
-// }
-
-// function stopDubbing(silent = false) {
-//     canStartAI = false;
-//     isProcessing = false;
-
-//     if (workletNode) {
-//         workletNode.port.postMessage({ type: "cleanup" });
-//         workletNode.disconnect();
-//         workletNode = null;
-//     }
-//     if (source) source.disconnect();
-//     if (audioContext) audioContext.close().catch(() => {});
-
-//     if (mainStream && !isVideoRecording) {   // Don't stop stream if recording is active
-//         mainStream.getTracks().forEach(track => track.stop());
-//         mainStream = null;
-//     }
-
-//     ttsQueue = [];
-//     speechSynthesis.cancel();
-
-//     if (!silent) {
-//         console.log("🛑 Dubbing stopped");
-//     }
-// }
-
-
-// console.log("🎥 Offscreen document ready - Starting AI model load...");
-
-// window.addEventListener('beforeunload', () => {
-//     if (mainStream) mainStream.getTracks().forEach(t => t.stop());
-// });

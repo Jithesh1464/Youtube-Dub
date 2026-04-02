@@ -319,3 +319,109 @@ async function processSelfRecordedAudio() {
         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Inside offscreen.js message listener
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === "SET_VIDEO_SYNC") {
+        // Forward the sync time to the AudioWorklet thread
+        if (workletNode) {
+            workletNode.port.postMessage({
+                type: "SET_SYNC_INTERNAL",
+                startTime: msg.startTime
+            });
+        }
+    }
+    // ... existing START_STREAM logic ...
+});
+
+// Update the Worklet onmessage handler inside initializeAudioPipeline
+workletNode.port.onmessage = async (event) => {
+    const msg = event.data;
+    if (msg?.type === "audio_chunk") {
+        // Pass the timestamps into the AI processing function
+        processChunk(msg.data, currentLanguage, msg.ytStart, msg.ytEnd);
+    }
+};
+
+async function processChunk(audioData, language, ytStart, ytEnd) {
+    try {
+        const result = await transcriber(audioData, {
+            language: language,
+            task: "translate"
+        });
+
+        const text = result.text.trim();
+        if (text.length > 5) {
+            console.log(`[${ytStart.toFixed(2)}s - ${ytEnd.toFixed(2)}s] Translation: ${text}`);
+            
+            // Send back to content script or handle synchronized playback here
+            handleSynchronizedPlayback(text, ytStart);
+        }
+    } catch (e) { console.error(e); }
+}
+
+//doubt here how it ensures we synchronize at exaclty at that time stamp.
+function handleSynchronizedPlayback(text, targetStartTime) {
+    // Basic logic: If we are late, speed up the voice
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // We can eventually ask Content.js for the CURRENT time to calculate lag
+    // For now, this prepares the utterance for Requirement #1
+    speechSynthesis.speak(utterance);
+}
+
+
+
+async function syncSpeakText(text, ytStart, ytEnd) {
+    // 1. Ask the BACKGROUND to get the time (since offscreen can't use chrome.tabs)
+    const response = await chrome.runtime.sendMessage({ type: "PROXY_GET_TIME" });
+    const currentVideoTime = response?.videoTime || 0;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+
+    // 2. CALCULATE LAG
+    const lag = currentVideoTime - ytStart;
+
+    if (lag > 0.5) {
+        utterance.rate = Math.min(1.0 + (lag * 0.2), 2.0);
+        console.log(`[Sync] Lag: ${lag.toFixed(2)}s. Rate: ${utterance.rate.toFixed(2)}`);
+    } else {
+        utterance.rate = 1.05;
+    }
+
+    // 3. PAUSE LOGIC (Forwarded through Background)
+    if (lag > 5.0) {
+        chrome.runtime.sendMessage({ type: "PROXY_PAUSE" });
+    }
+
+    // 4. QUEUE MANAGEMENT
+    utterance.onend = () => {
+        ttsQueue.shift();
+        if (ttsQueue.length > 0) {
+            speechSynthesis.speak(ttsQueue[0]);
+        } else {
+            // Tell background to resume video
+            chrome.runtime.sendMessage({ type: "PROXY_RESUME" });
+        }
+    };
+
+    ttsQueue.push(utterance);
+    if (!speechSynthesis.speaking) {
+        speechSynthesis.speak(utterance);
+    }
+}

@@ -37,42 +37,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         handleStopDubbing(sendResponse);
         return true;
     }
-// to handle self dubbing start/stop from popup, we forward the message to offscreen for handling the recording logic there, and we can keep background.js focused on dubbing logic and state management
-    // if (msg.type === "START_SELF_DUB") {
-    //     chrome.runtime.sendMessage({ type: "START_SELF_DUB_INTERNAL" });
-    //     sendResponse({ success: true });
-    //     return true;
-    // }
-
-    // if (msg.type === "STOP_SELF_DUB") {
-    //     chrome.runtime.sendMessage({ type: "STOP_SELF_DUB_INTERNAL" });
-    //     sendResponse({ success: true });
-    //     return true;
-    // }
-
     
 });
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
-    // === SELF VOICE DUB ===
-    // if (msg.type === "START_SELF_DUB") {
-    //     (async () => {
-    //         await ensureOffscreen();   // Ensure Offscreen is ready (good practice)
-
-    //         // Forward to Content Script (Important: Use chrome.tabs.sendMessage)
-    //         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            
-    //         if (tab) {
-    //             chrome.tabs.sendMessage(tab.id, { 
-    //                 type: "START_SELF_DUB_INTERNAL" 
-    //             });
-    //         }
-    //     })();
-
-    //     sendResponse({ success: true });
-    //     return true;
-    // }
-    // Self Voice Dub Handlers
     // ====================== SELF VOICE DUB ======================
     if (msg.type === "START_SELF_DUB") {
         (async () => {
@@ -103,33 +71,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ success: true });
         return true;
     }
-    // if (msg.type === "START_SELF_DUB") {
-    // (async () => {
-    //     await ensureOffscreen();
-    //     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    //     if (tab) {
-    //         chrome.tabs.sendMessage(tab.id, { type: "START_SELF_DUB_INTERNAL" });
-    //     }
-    // })();
-    // sendResponse({ success: true });
-    // return true;
-    // }
-
-    // if (msg.type === "STOP_SELF_DUB") {
-    //     const [tab] = chrome.tabs.query({ active: true, currentWindow: true });
-        
-    //     if (tab) {
-    //         chrome.tabs.sendMessage(tab.id, { 
-    //             type: "STOP_SELF_DUB_INTERNAL" 
-    //         });
-    //     }
-    //     sendResponse({ success: true });
-    //     return true;
-    // }
-
-    // // ... your other listeners (START_DUBBING, STOP_DUBBING, etc.)
 });
 
+// Inside background.js message listener
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    
+    // Proxy: Offscreen -> Background -> Content Script
+    if (msg.type === "PROXY_GET_TIME") {
+        if (currentDubbingTabId) {
+            chrome.tabs.sendMessage(currentDubbingTabId, { type: "GET_CURRENT_VIDEO_TIME" }, (res) => {
+                sendResponse(res);
+            });
+            return true; // Keep channel open for async response
+        }
+    }
+
+    if (msg.type === "PROXY_PAUSE") {
+        if (currentDubbingTabId) {
+            chrome.tabs.sendMessage(currentDubbingTabId, { type: "PAUSE_VIDEO_FOR_DUB" });
+        }
+    }
+
+    if (msg.type === "PROXY_RESUME") {
+        if (currentDubbingTabId) {
+            chrome.tabs.sendMessage(currentDubbingTabId, { type: "RESUME_VIDEO_AFTER_DUB" });
+        }
+    }
+});
 
 async function handleStartDubbing(msg, sendResponse) {
     try {
@@ -147,13 +115,15 @@ async function handleStartDubbing(msg, sendResponse) {
 
         currentDubbingTabId = tabId;
         isCapturing = true;
-
+        const contentResponse = await chrome.tabs.sendMessage(tabId, { type: "CAPTURE_SYNC_TIME" });
+        const videoStartTime = contentResponse?.time || 0;
         // Forward to offscreen
         chrome.runtime.sendMessage({
             type: "START_STREAM",
             streamId: streamId,
             language: language,
-            tabId: tabId
+            tabId: tabId,
+            startTime: videoStartTime
         });
 
         sendResponse({ success: true });
@@ -288,183 +258,3 @@ chrome.tabs.onRemoved.addListener((tabId) => {
         handleStopDubbing(() => {});
     }
 });
-// background.js
-
-// let isCapturing = false;
-// let currentDubbingTabId = null;
-// let creatingOffscreen = null;
-
-// let isVideoRecording = false;        // New: For video recording state
-
-// // ====================== OFFSCREEN SETUP ======================
-// async function setupOffscreen() {
-//     try {
-//         const exists = await chrome.offscreen.hasDocument();
-//         if (exists) return;
-
-//         if (creatingOffscreen) {
-//             await creatingOffscreen;
-//             return;
-//         }
-
-//         creatingOffscreen = chrome.offscreen.createDocument({
-//             url: "offscreen.html",
-//             reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
-//             justification: "Real-time audio capture and AI dubbing for YouTube videos"
-//         });
-
-//         await creatingOffscreen;
-//         creatingOffscreen = null;
-//     } catch (err) {
-//         console.error("Offscreen creation failed:", err);
-//         throw err;
-//     }
-// }
-
-// // ====================== MAIN MESSAGE LISTENER ======================
-// chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-
-//     // === DUBBING ===
-//     if (msg.type === "START_DUBBING") {
-//         handleStartDubbing(msg, sendResponse);
-//         return true;
-//     }
-
-//     if (msg.type === "STOP_DUBBING") {
-//         handleStopDubbing(sendResponse);
-//         return true;
-//     }
-
-//     // === VIDEO RECORDING ===
-//     if (msg.type === "START_VIDEO_RECORDING") {
-//         handleStartVideoRecording(msg, sendResponse);
-//         return true;
-//     }
-
-//     if (msg.type === "STOP_VIDEO_RECORDING") {
-//         handleStopVideoRecording(sendResponse);
-//         return true;
-//     }
-
-//     if (msg.type === "GET_RECORDING_STATUS") {
-//         sendResponse({ isRecording: isVideoRecording });
-//         return true;
-//     }
-// });
-
-// // ====================== DUBBING HANDLERS (Unchanged) ======================
-// async function handleStartDubbing(msg, sendResponse) {
-//     try {
-//         if (isCapturing) {
-//             sendResponse({ success: false, error: "Already capturing" });
-//             return;
-//         }
-
-//         const { streamId, language, tabId } = msg;
-//         if (!streamId || !tabId) {
-//             throw new Error("Missing streamId or tabId");
-//         }
-
-//         await setupOffscreen();
-
-//         currentDubbingTabId = tabId;
-//         isCapturing = true;
-
-//         chrome.runtime.sendMessage({
-//             type: "START_STREAM",
-//             streamId: streamId,
-//             language: language,
-//             tabId: tabId
-//         });
-
-//         sendResponse({ success: true });
-
-//     } catch (error) {
-//         console.error("Start dubbing failed:", error);
-//         isCapturing = false;
-//         currentDubbingTabId = null;
-//         sendResponse({ success: false, error: error.message });
-//     }
-// }
-
-// async function handleStopDubbing(sendResponse) {
-//     try {
-//         isCapturing = false;
-//         const tabId = currentDubbingTabId;
-//         currentDubbingTabId = null;
-
-//         try {
-//             await chrome.offscreen.closeDocument();
-//         } catch (e) {
-//             console.debug("Offscreen already closed");
-//         }
-
-//         if (tabId) {
-//             try {
-//                 await chrome.tabs.sendMessage(tabId, { type: "UNMUTE_VIDEO" });
-//             } catch (e) {}
-//         }
-
-//         chrome.runtime.sendMessage({ type: "DUBBING_STOPPED" });
-
-//         sendResponse({ success: true });
-
-//     } catch (error) {
-//         console.error("Stop dubbing error:", error);
-//         sendResponse({ success: false, error: error.message || "Unknown error" });
-//     }
-// }
-
-// // ====================== VIDEO RECORDING HANDLERS ======================
-// async function handleStartVideoRecording(msg, sendResponse) {
-//     try {
-//         if (isVideoRecording) {
-//             sendResponse({ success: false, error: "Already recording" });
-//             return;
-//         }
-
-//         const { tabId } = msg;
-//         if (!tabId) {
-//             throw new Error("Missing tabId");
-//         }
-
-//         await setupOffscreen();                    // Ensure offscreen is ready
-
-//         isVideoRecording = true;
-//         await chrome.storage.local.set({ isVideoRecording: true });
-
-//         chrome.runtime.sendMessage({
-//             type: "START_VIDEO_RECORDING_INTERNAL",
-//             tabId: tabId
-//         });
-
-//         sendResponse({ success: true });
-
-//     } catch (error) {
-//         console.error("Start video recording failed:", error);
-//         isVideoRecording = false;
-//         sendResponse({ success: false, error: error.message });
-//     }
-// }
-
-// async function handleStopVideoRecording(sendResponse) {
-//     try {
-//         isVideoRecording = false;
-//         await chrome.storage.local.set({ isVideoRecording: false });
-
-//         chrome.runtime.sendMessage({ type: "STOP_VIDEO_RECORDING" });
-
-//         sendResponse({ success: true });
-
-//     } catch (error) {
-//         console.error("Stop video recording error:", error);
-//         sendResponse({ success: false, error: error.message });
-//     }
-// }
-
-// // ====================== CLEANUP ======================
-// chrome.tabs.onRemoved.addListener((tabId) => {
-//     if (tabId === currentDubbingTabId) {
-//         handleStopDubbing(() => {});
-//     }
-// });

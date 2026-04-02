@@ -342,6 +342,12 @@
     
     // ====================== SINGLE MESSAGE LISTENER ======================
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+        if (!currentVideo && (msg.type === "CAPTURE_SYNC_TIME" || msg.type === "GET_CURRENT_VIDEO_TIME" || msg.type === "PAUSE_VIDEO_FOR_DUB" || msg.type === "RESUME_VIDEO_AFTER_DUB")) {
+        if (msg.type === "CAPTURE_SYNC_TIME" || msg.type === "GET_CURRENT_VIDEO_TIME") {
+            sendResponse({ success: false, error: "Video not detected yet" });
+        }
+        return false; 
+        }
         switch (msg.type) {
 
             // Mute / Unmute (your existing logic)
@@ -384,6 +390,36 @@
                 if (overlay) overlay.remove();
                 overlayVisualizer = null;
                 break;
+                
+            case "CAPTURE_SYNC_TIME":
+                console.log("🕒 YouDub Sync: Capturing start time at:", currentVideo.currentTime);
+                // Send to background/offscreen
+                // chrome.runtime.sendMessage({
+                //     type: "SET_VIDEO_SYNC",
+                //     startTime: currentVideo.currentTime
+                // });
+                sendResponse({ success: true, time: currentVideo.currentTime });
+                break;
+
+            case "GET_CURRENT_VIDEO_TIME":
+                sendResponse({ videoTime: currentVideo.currentTime });
+                break;
+
+            case "PAUSE_VIDEO_FOR_DUB":
+                if (!currentVideo.paused) {
+                    console.log("⏸️ AI lagging, pausing video...");
+                    currentVideo.pause();
+                }
+                sendResponse({ success: true });
+                break;
+
+            case "RESUME_VIDEO_AFTER_DUB":
+                if (currentVideo.paused) {
+                    console.log("▶️ Dubbing caught up, resuming...");
+                    currentVideo.play();
+                }
+                sendResponse({ success: true });
+                break;
 
             default:
                 sendResponse({ success: false, error: "unknown_type" });
@@ -391,101 +427,6 @@
         return true; // Keep channel open
     });
 
-    // ====================== SELF VOICE DUB FUNCTIONS ======================
-//     async function startSelfVoiceDub() {
-//         try {
-//             console.log("🎤 Self Voice Dub: Requesting microphone...");
-
-//             selfMicStream = await navigator.mediaDevices.getUserMedia({
-//                 audio: {
-//                     echoCancellation: true,
-//                     noiseSuppression: true,
-//                     sampleRate: 16000
-//                 }
-//             });
-
-//             isSelfDubbingActive = true;
-//             selfRecordedChunks = [];
-
-//             selfMediaRecorder = new MediaRecorder(selfMicStream, {
-//                 mimeType: "audio/webm;codecs=opus"
-//             });
-
-//             selfMediaRecorder.ondataavailable = (e) => {
-//                 if (e.data.size > 0) selfRecordedChunks.push(e.data);
-//             };
-
-//             selfMediaRecorder.start(500);
-
-//             resetSilenceTimer();
-
-//             console.log("✅ Self Voice Dub: Listening to microphone");
-
-//         } catch (err) {
-//             console.error("Microphone access error:", err);
-//             chrome.runtime.sendMessage({ 
-//                 type: "SELF_DUB_ERROR", 
-//                 error: "Microphone permission denied or unavailable." 
-//             });
-//         }
-//     }
-
-//     function resetSilenceTimer() {
-//         if (selfSilenceTimeout) clearTimeout(selfSilenceTimeout);
-
-//         selfSilenceTimeout = setTimeout(() => {
-//             if (isSelfDubbingActive) {
-//                 console.log("🛑 5 seconds silence detected → Processing audio");
-//                 processSelfRecordedAudio();
-//             }
-//         }, 5000);
-//     }
-
-//     function stopSelfVoiceDub() {
-//         if (selfMediaRecorder) selfMediaRecorder.stop();
-//         if (selfMicStream) selfMicStream.getTracks().forEach(track => track.stop());
-//         if (selfSilenceTimeout) clearTimeout(selfSilenceTimeout);
-
-//         isSelfDubbingActive = false;
-//         console.log("⏹️ Self Voice Dub stopped");
-//     }
-
-//     async function processSelfRecordedAudio() {
-//     if (selfRecordedChunks.length === 0) {
-//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
-//         return;
-//     }
-
-//     isSelfDubbingActive = false;
-//     chrome.runtime.sendMessage({ type: "SELF_DUB_PROCESSING" });
-
-//     try {
-//         const audioBlob = new Blob(selfRecordedChunks, { type: "audio/webm" });
-
-//         // Better conversion with error handling
-//         const arrayBuffer = await audioBlob.arrayBuffer();
-//         const audioContext = new AudioContext({ sampleRate: 16000 });
-
-//         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer).catch(err => {
-//             console.error("decodeAudioData failed:", err);
-//             throw err;
-//         });
-
-//         const audioData = audioBuffer.getChannelData(0);
-
-//         console.log(`✅ Audio decoded | Duration: ${audioBuffer.duration.toFixed(2)}s | Samples: ${audioData.length}`);
-
-//         // Send to Offscreen
-//         chrome.runtime.sendMessage({
-//             type: "PROCESS_SELF_AUDIO",
-//             audioData: Array.from(audioData)
-//         });
-
-//     } catch (err) {
-//         console.error("Self dub processing error:", err);
-//         chrome.runtime.sendMessage({ type: "SELF_DUB_FINISHED" });
-//     }
-// }
 
 async function startSelfVoiceDub() {
     try {
@@ -581,6 +522,60 @@ async function processSelfRecordedAudio() {
             }
         }
     });
+// chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+//     // Safety check: if the video isn't found yet, we can't do anything
+//     if (!currentVideo) {
+//         if (msg.type === "CAPTURE_SYNC_TIME" || msg.type === "GET_CURRENT_VIDEO_TIME") {
+//             sendResponse({ success: false, error: "Video not detected yet" });
+//         }
+//         return false; 
+//     }
+
+//     switch (msg.type) {
+//         case "CAPTURE_SYNC_TIME":
+//             console.log("🕒 YouDub Sync: Capturing start time at:", currentVideo.currentTime);
+//             // Send to background/offscreen
+//             chrome.runtime.sendMessage({
+//                 type: "SET_VIDEO_SYNC",
+//                 startTime: currentVideo.currentTime
+//             });
+//             sendResponse({ success: true, time: currentVideo.currentTime });
+//             break;
+
+//         case "GET_CURRENT_VIDEO_TIME":
+//             sendResponse({ videoTime: currentVideo.currentTime });
+//             break;
+
+//         case "PAUSE_VIDEO_FOR_DUB":
+//             if (!currentVideo.paused) {
+//                 console.log("⏸️ AI lagging, pausing video...");
+//                 currentVideo.pause();
+//             }
+//             sendResponse({ success: true });
+//             break;
+
+//         case "RESUME_VIDEO_AFTER_DUB":
+//             if (currentVideo.paused) {
+//                 console.log("▶️ Dubbing caught up, resuming...");
+//                 currentVideo.play();
+//             }
+//             sendResponse({ success: true });
+//             break;
+//     }
+
+//     return true; // Keep channel open for async responses
+// });
+
+// Helper for Requirement #3 (Smooth Forward/Backward)
+function setupSeekListener(video) {
+    video.addEventListener('seeked', () => {
+        console.log("⏩ YouDub: Seek detected, resetting sync to:", video.currentTime);
+        chrome.runtime.sendMessage({
+            type: "SET_VIDEO_SYNC",
+            startTime: video.currentTime
+        });
+    });
+}
 
     setTimeout(() => {
         observer.observe(document.body, { 
