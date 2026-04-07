@@ -9,8 +9,8 @@ class AudioProcessor extends AudioWorkletProcessor {
         this.isSynced = false;
 
         // Better chunk settings for real-time dubbing
-        this.chunkDuration = 12;                  // 12 seconds per chunk (good balance)
-        this.overlapDuration = 4;                 // 4 seconds overlap between chunks
+        this.chunkDuration = 1.0;      // 1 second rolling window
+        this.overlapDuration = 0.75;   // 750 ms overlap
         this.sampleRate = 16000;
         
         this.targetChunkSize = this.sampleRate * this.chunkDuration;
@@ -98,9 +98,7 @@ class AudioProcessor extends AudioWorkletProcessor {
                 level: Math.min(rms * 2, 1.0)   // Normalize a bit
             });
         }
-
-        if (this.bufferSize >= this.targetChunkSize) {
-            // --- CALCULATE START/END TIMESTAMPS ---
+        while (this.bufferSize >= this.targetChunkSize) {
             const startTimeOffset = this.totalSamplesProcessed / this.sampleRate;
             const endTimeOffset = (this.totalSamplesProcessed + this.targetChunkSize) / this.sampleRate;
 
@@ -111,14 +109,33 @@ class AudioProcessor extends AudioWorkletProcessor {
                 ytEnd: this.initialVideoTime + endTimeOffset
             });
 
-            this.totalSamplesProcessed += this.targetChunkSize;
-            
-            // Keep overlap (4s)
-            const overlapSize = this.sampleRate * 4;
-            const remaining = this.buffer.slice(this.targetChunkSize - overlapSize);
+            this.totalSamplesProcessed += (this.targetChunkSize - this.overlapSize);
+
+            const remaining = this.buffer.slice(this.targetChunkSize - this.overlapSize);
             this.buffer = remaining;
             this.bufferSize = remaining.length;
         }
+
+        // if (this.bufferSize >= this.targetChunkSize) {
+        //     // --- CALCULATE START/END TIMESTAMPS ---
+        //     const startTimeOffset = this.totalSamplesProcessed / this.sampleRate;
+        //     const endTimeOffset = (this.totalSamplesProcessed + this.targetChunkSize) / this.sampleRate;
+
+        //     this.port.postMessage({
+        //         type: "audio_chunk",
+        //         data: this.buffer.slice(0, this.targetChunkSize),
+        //         ytStart: this.initialVideoTime + startTimeOffset,
+        //         ytEnd: this.initialVideoTime + endTimeOffset
+        //     });
+
+        //     this.totalSamplesProcessed += this.targetChunkSize;
+            
+        //     // Keep overlap (4s)
+        //     const overlapSize = this.sampleRate * 4;
+        //     const remaining = this.buffer.slice(this.targetChunkSize - overlapSize);
+        //     this.buffer = remaining;
+        //     this.bufferSize = remaining.length;
+        // }
 
         return true;
     }
