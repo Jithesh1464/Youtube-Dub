@@ -17,6 +17,44 @@ let mediaRecorder = null;
 let recordedChunks = [];
 
 // ====================== MODEL INITIALIZATION (Fully Offline) ======================
+// async function initializeModel() {
+//     if (transcriber) return;
+
+//     try {
+//         const baseUrl = chrome.runtime.getURL('');
+
+//         env.allowLocalModels = true;
+//         env.allowRemoteModels = true;        // ← Allow fallback to download
+
+//         env.backends.onnx.wasm.wasmPaths = {
+//             'ort-wasm-simd-threaded.wasm': baseUrl + 'ort-wasm-simd-threaded.wasm',
+//             'ort-wasm-simd-threaded.jsep.wasm': baseUrl + 'ort-wasm-simd-threaded.jsep.wasm'
+//         };
+//         env.backends.onnx.wasm.jsepPath = baseUrl + 'ort-wasm-simd-threaded.jsep.mjs';
+
+//         console.log("🚀 Loading Whisper tiny model (local preferred, remote fallback)...");
+
+//         transcriber = await pipeline("automatic-speech-recognition", "onnx-community/whisper-tiny", {
+//             device: "webgpu",
+//             dtype: "fp32",
+//             progress_callback: (data) => {
+//                 console.log("Model loading progress:", data);
+//             }
+//         });
+
+//         console.log("✅ Whisper model loaded successfully (WebGPU)");
+//     } catch (err) {
+//         console.warn("WebGPU failed, falling back to WASM:", err.message);
+//         try {
+//             transcriber = await pipeline("automatic-speech-recognition", "onnx-community/whisper-tiny", {
+//                 device: "wasm"
+//             });
+//             console.log("✅ Whisper model loaded with WASM fallback");
+//         } catch (fallbackErr) {
+//             console.error("❌ Model loading completely failed:", fallbackErr);
+//         }
+//     }
+// }
 async function initializeModel() {
     if (transcriber) return;
 
